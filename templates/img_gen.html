@@ -1,0 +1,712 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI Image Generator</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: #f8f9fa;
+            height: 100vh;
+            display: flex;
+            overflow: hidden;
+        }
+
+        /* Sidebar Styles */
+        .sidebar {
+            width: 260px;
+            background: linear-gradient(180deg, #3d5a80 0%, #2c4461 100%);
+            color: white;
+            display: flex;
+            flex-direction: column;
+            padding: 20px;
+            box-shadow: 2px 0 10px rgba(0, 0, 0, 0.1);
+        }
+
+        .sidebar-header {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin-bottom: 30px;
+            padding-bottom: 20px;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        .sidebar-header .icon {
+            width: 32px;
+            height: 32px;
+            background: rgba(255, 255, 255, 0.2);
+            border-radius: 8px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 18px;
+        }
+
+        .sidebar-header .title {
+            font-size: 16px;
+            font-weight: 600;
+        }
+
+        .sidebar-header .subtitle {
+            font-size: 12px;
+            opacity: 0.7;
+            margin-top: 2px;
+        }
+
+        .sidebar-nav {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+
+        .nav-item {
+            padding: 12px 16px;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            font-size: 14px;
+            font-weight: 500;
+        }
+
+        .nav-item:hover {
+            background: rgba(255, 255, 255, 0.1);
+        }
+
+        .nav-item.active {
+            background: #e74c3c;
+            color: white;
+        }
+
+        .nav-item .nav-icon {
+            width: 20px;
+            height: 20px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .logout-btn {
+            background: #e74c3c;
+            border: none;
+            color: white;
+            padding: 12px 16px;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: 500;
+            transition: all 0.2s ease;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+        }
+
+        .logout-btn:hover {
+            background: #c0392b;
+        }
+
+        /* Main Content Styles */
+        .main-content {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            height: 100vh;
+        }
+
+        .chat-header {
+            background: white;
+            padding: 20px 30px;
+            border-bottom: 1px solid #e9ecef;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .chat-header .header-icon {
+            width: 32px;
+            height: 32px;
+            background: #007bff;
+            border-radius: 8px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: white;
+            font-size: 16px;
+        }
+
+        .chat-header .header-title {
+            font-size: 18px;
+            font-weight: 600;
+            color: #2c3e50;
+        }
+
+        .chat-container {
+            flex: 1;
+            background: #f8f9fa;
+            padding: 30px;
+            overflow-y: auto;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .welcome-message {
+            background: white;
+            border-radius: 12px;
+            padding: 25px;
+            margin-bottom: 20px;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
+            border: 1px solid #e9ecef;
+        }
+
+        .welcome-message h2 {
+            color: #2c3e50;
+            font-size: 18px;
+            margin-bottom: 10px;
+        }
+
+        .welcome-message p {
+            color: #6c757d;
+            font-size: 14px;
+            line-height: 1.5;
+        }
+
+        .chat-messages {
+            flex: 1;
+            margin-bottom: 20px;
+        }
+
+        .message {
+            margin-bottom: 20px;
+            animation: fadeIn 0.4s ease-out;
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        .user-message, .bot-message {
+            padding: 15px 20px;
+            border-radius: 12px;
+            max-width: 80%;
+            line-height: 1.5;
+            font-size: 14px;
+        }
+
+        .user-message {
+            background: #007bff;
+            color: white;
+            margin-left: auto;
+            box-shadow: 0 2px 8px rgba(0, 123, 255, 0.2);
+        }
+
+        .bot-message {
+            background: white;
+            margin-right: auto;
+            border: 1px solid #e9ecef;
+            color: #2c3e50;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
+        }
+
+        .bot-image {
+            width: 100%;
+            max-width: 500px;
+            height: auto;
+            margin: 15px 0;
+            border-radius: 8px;
+            border: 1px solid #e9ecef;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+            transition: transform 0.2s ease;
+            cursor: pointer;
+        }
+
+        .bot-image:hover {
+            transform: scale(1.02);
+        }
+
+        .download-btn {
+            display: inline-block;
+            margin-top: 10px;
+            background: #28a745;
+            color: white;
+            padding: 8px 16px;
+            border-radius: 6px;
+            text-decoration: none;
+            font-size: 12px;
+            font-weight: 500;
+            transition: all 0.2s ease;
+        }
+
+        .download-btn:hover {
+            background: #218838;
+            transform: translateY(-1px);
+        }
+
+        /* Input Area */
+        .input-area {
+            background: white;
+            border-top: 1px solid #e9ecef;
+            padding: 20px 30px;
+            display: flex;
+            align-items: center;
+            gap: 15px;
+        }
+
+        .input-container {
+            flex: 1;
+            position: relative;
+        }
+
+        .prompt-input {
+            width: 100%;
+            padding: 15px 50px 15px 20px;
+            font-size: 14px;
+            border: 1px solid #e9ecef;
+            border-radius: 25px;
+            transition: all 0.2s ease;
+            font-family: inherit;
+            background: #f8f9fa;
+        }
+
+        .prompt-input:focus {
+            outline: none;
+            border-color: #007bff;
+            background: white;
+            box-shadow: 0 0 0 3px rgba(0, 123, 255, 0.1);
+        }
+
+        .send-btn {
+            position: absolute;
+            right: 8px;
+            top: 50%;
+            transform: translateY(-50%);
+            width: 35px;
+            height: 35px;
+            background: #007bff;
+            color: white;
+            border: none;
+            border-radius: 50%;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 16px;
+        }
+
+        .send-btn:hover {
+            background: #0056b3;
+            transform: translateY(-50%) scale(1.05);
+        }
+
+        .send-btn:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+            transform: translateY(-50%);
+        }
+
+        .attach-btn {
+            width: 40px;
+            height: 40px;
+            background: #6c757d;
+            color: white;
+            border: none;
+            border-radius: 50%;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 16px;
+        }
+
+        .attach-btn:hover {
+            background: #5a6268;
+        }
+
+        /* Loading and Error States */
+        .loading {
+            text-align: center;
+            color: #007bff;
+            font-style: italic;
+            margin: 20px 0;
+            display: none;
+            animation: pulse 1.5s ease-in-out infinite;
+        }
+
+        .loading.active {
+            display: block;
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 0.7; }
+            50% { opacity: 1; }
+        }
+
+        .error-message {
+            background: #f8d7da;
+            color: #721c24;
+            padding: 15px;
+            border-radius: 8px;
+            margin: 15px 0;
+            border: 1px solid #f5c6cb;
+            display: none;
+            animation: fadeIn 0.4s ease-out;
+        }
+
+        .error-message.active {
+            display: block;
+        }
+
+        /* Example Prompts */
+        .example-prompts {
+            margin-top: 20px;
+            padding: 20px;
+            background: white;
+            border-radius: 12px;
+            border: 1px solid #e9ecef;
+        }
+
+        .example-prompts h3 {
+            color: #2c3e50;
+            margin-bottom: 15px;
+            font-size: 14px;
+            font-weight: 600;
+        }
+
+        .example-prompt {
+            display: inline-block;
+            background: #f8f9fa;
+            padding: 6px 12px;
+            margin: 3px;
+            border-radius: 15px;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            border: 1px solid #e9ecef;
+            font-size: 12px;
+            color: #495057;
+        }
+
+        .example-prompt:hover {
+            background: #007bff;
+            color: white;
+            border-color: #007bff;
+        }
+
+        /* Image Modal */
+        .image-modal {
+            display: none;
+            position: fixed;
+            z-index: 1000;
+            left: 0;
+            top: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0, 0, 0, 0.8);
+            animation: fadeIn 0.3s ease-out;
+        }
+
+        .image-modal.active {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .modal-content {
+            max-width: 90%;
+            max-height: 90%;
+            border-radius: 8px;
+            box-shadow: 0 20px 40px rgba(0, 0, 0, 0.3);
+        }
+
+        .close-modal {
+            position: absolute;
+            top: 20px;
+            right: 30px;
+            color: white;
+            font-size: 30px;
+            font-weight: bold;
+            cursor: pointer;
+            transition: opacity 0.3s ease;
+        }
+
+        .close-modal:hover {
+            opacity: 0.7;
+        }
+
+        /* Responsive Design */
+        @media (max-width: 768px) {
+            .sidebar {
+                width: 200px;
+            }
+            
+            .chat-container {
+                padding: 20px;
+            }
+            
+            .input-area {
+                padding: 15px 20px;
+            }
+            
+            .user-message, .bot-message {
+                max-width: 95%;
+            }
+        }
+
+        @media (max-width: 640px) {
+            .sidebar {
+                display: none;
+            }
+            
+            .main-content {
+                width: 100%;
+            }
+        }
+    </style>
+</head>
+<body>
+    <!-- Sidebar -->
+    <div class="sidebar">
+        <div class="sidebar-header">
+            <div class="icon">🤖</div>
+            <div>
+                <div class="title">Enigma AI Bot</div>
+                <div class="subtitle">Welcome, Susheeth!</div>
+            </div>
+        </div>
+        
+        <div class="sidebar-nav">
+            <div class="nav-item">
+                <div class="nav-icon">💬</div>
+                Chat
+            </div>
+            <div class="nav-item active">
+                <div class="nav-icon">🎨</div>
+                Image Generation
+            </div>
+        </div>
+        
+        <button class="logout-btn">
+            <span>🚪</span>
+            Logout
+        </button>
+    </div>
+
+    <!-- Main Content -->
+    <div class="main-content">
+        <!-- Chat Header -->
+        <div class="chat-header">
+            <div class="header-icon">⚙️</div>
+            <div class="header-title">AI Assistant</div>
+        </div>
+
+        <!-- Chat Container -->
+        <div class="chat-container">
+            <div class="welcome-message">
+                <h2>Hello! I'm your AI assistant.</h2>
+                <p>You can ask me questions, upload documents for analysis, or share images for description. How can I help you today?</p>
+            </div>
+
+            <div class="chat-messages" id="chat-log">
+                <!-- Messages will be added here -->
+            </div>
+
+            <div class="loading" id="loading">
+                <p>⏳ Creating your masterpiece... This may take a moment</p>
+            </div>
+
+            <div class="error-message" id="errorMessage"></div>
+
+            <div class="example-prompts">
+                <h3>💡 Example Prompts:</h3>
+                <div class="example-prompt" onclick="setPrompt('A cyberpunk city at night with neon lights, futuristic architecture, and flying cars')">Cyberpunk City</div>
+                <div class="example-prompt" onclick="setPrompt('A magical forest with glowing mushrooms, fairy lights, and mystical creatures')">Magical Forest</div>
+                <div class="example-prompt" onclick="setPrompt('A realistic portrait of a wise old wizard with a long beard and magical staff')">Fantasy Wizard</div>
+                <div class="example-prompt" onclick="setPrompt('A serene Japanese garden with cherry blossoms, koi pond, and traditional architecture')">Japanese Garden</div>
+                <div class="example-prompt" onclick="setPrompt('A space station orbiting Earth with astronauts floating in zero gravity')">Space Station</div>
+                <div class="example-prompt" onclick="setPrompt('A cozy coffee shop interior with warm lighting, books, and people reading')">Cozy Coffee Shop</div>
+            </div>
+        </div>
+
+        <!-- Input Area -->
+        <div class="input-area">
+            <button class="attach-btn" title="Attach file">📎</button>
+            <div class="input-container">
+                <input type="text" id="prompt" class="prompt-input" placeholder="Type your message here..." autofocus />
+                <button id="send-btn" class="send-btn" onclick="sendPrompt()" title="Send message">➤</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Image Modal -->
+    <div id="imageModal" class="image-modal">
+        <span class="close-modal" onclick="closeModal()">&times;</span>
+        <img class="modal-content" id="modalImage">
+    </div>
+
+    <script>
+        const promptInput = document.getElementById('prompt');
+        const sendBtn = document.getElementById('send-btn');
+        const chatLog = document.getElementById('chat-log');
+        const loading = document.getElementById('loading');
+        const errorMessage = document.getElementById('errorMessage');
+        const imageModal = document.getElementById('imageModal');
+        const modalImage = document.getElementById('modalImage');
+
+        // Set example prompt
+        function setPrompt(text) {
+            promptInput.value = text;
+            promptInput.focus();
+        }
+
+        // Show error message
+        function showError(message) {
+            errorMessage.textContent = '❌ ' + message;
+            errorMessage.classList.add('active');
+            setTimeout(() => {
+                errorMessage.classList.remove('active');
+            }, 5000);
+        }
+
+        // Image modal functions
+        function openModal(imageSrc) {
+            modalImage.src = imageSrc;
+            imageModal.classList.add('active');
+            document.body.style.overflow = 'hidden';
+        }
+
+        function closeModal() {
+            imageModal.classList.remove('active');
+            document.body.style.overflow = 'auto';
+        }
+
+        // Close modal when clicking outside the image
+        imageModal.addEventListener('click', function(e) {
+            if (e.target === imageModal) {
+                closeModal();
+            }
+        });
+
+        // Close modal with Escape key
+        document.addEventListener('keydown', function(e) {
+            if (e.key === 'Escape' && imageModal.classList.contains('active')) {
+                closeModal();
+            }
+        });
+
+        async function sendPrompt() {
+            const prompt = promptInput.value.trim();
+
+            if (!prompt) {
+                showError('Please enter a prompt to generate an image');
+                return;
+            }
+
+            // Add user message to chat
+            const userMsg = document.createElement("div");
+            userMsg.className = "message";
+            userMsg.innerHTML = `<div class="user-message">${prompt}</div>`;
+            chatLog.appendChild(userMsg);
+            
+            // Clear input and scroll to bottom
+            promptInput.value = "";
+            chatLog.scrollTop = chatLog.scrollHeight;
+
+            // Show loading state
+            sendBtn.disabled = true;
+            sendBtn.innerHTML = "⏳";
+            loading.classList.add("active");
+            errorMessage.classList.remove('active');
+
+            try {
+                const response = await fetch("/generate", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ prompt })
+                });
+
+                const data = await response.json();
+
+                if (!response.ok) {
+                    throw new Error(data.error || `HTTP error! status: ${response.status}`);
+                }
+
+                // Create bot message
+                const botMsg = document.createElement("div");
+                botMsg.className = "message";
+
+                if (data.image_url) {
+                    const imageId = 'img_' + Date.now();
+                    botMsg.innerHTML = `
+                        <div class="bot-message">
+                            <div>✨ Here's your generated image:</div>
+                            <img src="${data.image_url}" alt="Generated Image" class="bot-image" id="${imageId}" onclick="openModal('${data.image_url}')" />
+                            <div>
+                                <a href="${data.image_url}" download="generated-image.png" class="download-btn">
+                                    📥 Download Image
+                                </a>
+                            </div>
+                        </div>
+                    `;
+                } else {
+                    botMsg.innerHTML = `<div class="bot-message">❌ Failed to generate image: ${data.error || "Unknown error"}</div>`;
+                }
+
+                chatLog.appendChild(botMsg);
+                chatLog.scrollTop = chatLog.scrollHeight;
+
+            } catch (error) {
+                console.error('Generation error:', error);
+                showError(`Failed to generate image: ${error.message}`);
+                
+                const errMsg = document.createElement("div");
+                errMsg.className = "message";
+                errMsg.innerHTML = `<div class="bot-message">❌ Error connecting to the server. Please try again.</div>`;
+                chatLog.appendChild(errMsg);
+                chatLog.scrollTop = chatLog.scrollHeight;
+            } finally {
+                // Reset button state
+                sendBtn.disabled = false;
+                sendBtn.innerHTML = "➤";
+                loading.classList.remove("active");
+            }
+        }
+
+        // Event listeners
+        promptInput.addEventListener("keypress", function(e) {
+            if (e.key === "Enter") {
+                sendPrompt();
+            }
+        });
+
+        // Auto-focus on prompt input
+        document.addEventListener('DOMContentLoaded', () => {
+            promptInput.focus();
+        });
+
+        // Character counter visual feedback
+        promptInput.addEventListener('input', (e) => {
+            const length = e.target.value.length;
+            if (length > 400) {
+                e.target.style.borderColor = '#dc3545';
+            } else if (length > 300) {
+                e.target.style.borderColor = '#ffc107';
+            } else {
+                e.target.style.borderColor = '#e9ecef';
+            }
+        });
+    </script>
+</body>
+</html>
