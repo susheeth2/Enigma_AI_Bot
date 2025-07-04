@@ -1,8 +1,10 @@
 import uuid
-from flask import Blueprint, request, jsonify, session
+from flask import Blueprint, request, jsonify, session, Response
 from services.chat_service import ChatService
 from services.file_service import FileService
 from utils.database import DatabaseManager
+import json
+import time
 
 api_bp = Blueprint('api', __name__)
 chat_service = ChatService()
@@ -17,17 +19,90 @@ def send_message():
     try:
         data = request.get_json()
         user_message = data.get('message', '').strip()
+        stream = data.get('stream', False)
 
-        result = chat_service.process_message(
-            user_message, 
-            session['user_id'], 
-            session['session_id']
-        )
-        return jsonify(result)
+        if stream:
+            return Response(
+                stream_chat_response(user_message, session['user_id'], session['session_id']),
+                mimetype='text/stream'
+            )
+        else:
+            result = chat_service.process_message(
+                user_message, 
+                session['user_id'], 
+                session['session_id']
+            )
+            return jsonify(result)
 
     except Exception as e:
         print(f"[send_message] Error: {e}")
         return jsonify({'error': 'Failed to process message'}), 500
+
+def stream_chat_response(user_message, user_id, session_id):
+    """Generator function for streaming chat responses"""
+    try:
+        # Save user message
+        db_manager.save_message(user_id, session_id, 'user', user_message)
+
+        # Get chat history for context
+        history = db_manager.get_session_messages(user_id, session_id)
+        memory_context = "\n".join([f"{m['role'].capitalize()}: {m['message']}" for m in history[-10:]])
+
+        # Get relevant documents from vector store
+        vector_context = ""
+        if chat_service.vector_store.collection_exists(session_id):
+            relevant_docs = chat_service.vector_store.search_documents(session_id, user_message)
+            vector_context = "\n".join([doc.get('text', '') for doc in relevant_docs])
+
+        # Combine contexts
+        full_context = f"Chat History:\n{memory_context.strip()}\n\nRelevant Docs:\n{vector_context.strip()}"
+        
+        # Generate streaming response
+        full_response = ""
+        for chunk in chat_service.llm_service.generate_streaming_response(user_message, full_context):
+            full_response += chunk
+            yield f"data: {json.dumps({'content': chunk})}\n\n"
+            time.sleep(0.05)  # Small delay to simulate realistic streaming
+
+        # Save complete AI response
+        db_manager.save_message(user_id, session_id, 'assistant', full_response)
+        
+        yield f"data: [DONE]\n\n"
+
+    except Exception as e:
+        print(f"[stream_chat_response] Error: {e}")
+        yield f"data: {json.dumps({'error': str(e)})}\n\n"
+
+@api_bp.route('/web_search', methods=['POST'])
+def web_search():
+    """Placeholder for web search functionality"""
+    if 'user_id' not in session:
+        return jsonify({'error': 'Not authenticated'}), 401
+
+    try:
+        data = request.get_json()
+        query = data.get('query', '').strip()
+        
+        # TODO: Implement actual web search functionality
+        # This could integrate with search APIs like Google, Bing, or DuckDuckGo
+        
+        result = {
+            'query': query,
+            'results': [
+                {
+                    'title': 'Web Search Coming Soon',
+                    'url': '#',
+                    'snippet': f'Web search functionality for "{query}" will be implemented soon.'
+                }
+            ],
+            'message': f'🔍 Web search for "{query}" - Feature coming soon!'
+        }
+        
+        return jsonify(result)
+
+    except Exception as e:
+        print(f"[web_search] Error: {e}")
+        return jsonify({'error': 'Failed to perform web search'}), 500
 
 @api_bp.route('/upload_file', methods=['POST'])
 def upload_file():
