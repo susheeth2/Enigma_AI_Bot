@@ -1,9 +1,11 @@
 """
-MCP Client for integrating with MCP servers
+MCP Client for integrating with MCP servers - Fixed event loop handling
 """
 import asyncio
 import subprocess
 import sys
+import threading
+import concurrent.futures
 from typing import Any, Dict, List, Optional
 from mcp.client.session import ClientSession
 from mcp.client.stdio import stdio_client
@@ -29,6 +31,20 @@ class MCPClient:
                 'session': None
             }
         }
+        self.executor = concurrent.futures.ThreadPoolExecutor(max_workers=4)
+
+    def _run_in_new_loop(self, coro):
+        """Run coroutine in a new event loop in a separate thread"""
+        def run_in_thread():
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            try:
+                return loop.run_until_complete(coro)
+            finally:
+                loop.close()
+        
+        future = self.executor.submit(run_in_thread)
+        return future.result(timeout=30)
 
     async def connect_to_server(self, server_name: str) -> bool:
         """Connect to an MCP server"""
@@ -180,10 +196,17 @@ class MCPClient:
             for server_name, config in self.servers.items()
         }
 
+    def __del__(self):
+        """Cleanup executor on deletion"""
+        try:
+            self.executor.shutdown(wait=False)
+        except:
+            pass
+
 # Global MCP client instance
 mcp_client = MCPClient()
 
-# Convenience functions for common operations
+# Convenience functions for common operations with proper event loop handling
 async def save_message_mcp(user_id: int, session_id: str, role: str, message: str) -> str:
     """Save message using MCP database server"""
     result = await mcp_client.call_tool('database', 'save_message', {
@@ -193,6 +216,7 @@ async def save_message_mcp(user_id: int, session_id: str, role: str, message: st
         'message': message
     })
     return result if result is not None else ""
+
 async def search_documents_mcp(session_id: str, query: str, top_k: int = 5) -> str:
     """Search documents using MCP vector server"""
     result = await mcp_client.call_tool('vector', 'search_documents', {
@@ -208,6 +232,7 @@ async def generate_image_mcp(prompt: str) -> str:
         'prompt': prompt
     })
     return result if result is not None else ""
+
 async def web_search_mcp(query: str, num_results: int = 5) -> str:
     """Perform web search using MCP web search server"""
     result = await mcp_client.call_tool('web_search', 'web_search', {

@@ -13,7 +13,7 @@ def create_app():
     app = Flask(__name__)
     app.config.from_object(Config)
     
-    # Register all routes (including new MCP routes)
+    # Register all routes (including enhanced routes)
     register_routes(app)
     
     return app
@@ -43,10 +43,17 @@ def main():
         print(f"⚠️  MCP servers could not be started: {str(e)}")
         print("   Application will run without MCP integration")
     
+    # Add error handler for better debugging
+    @app.errorhandler(500)
+    def internal_error(error):
+        print(f"Internal server error: {error}")
+        return "Internal server error", 500
+    
     app.run(
         debug=os.getenv('DEBUG', 'true').lower() == 'true',
         host='0.0.0.0',
-        port=5000
+        port=5000,
+        threaded=True  # Enable threading for better async handling
     )
 
 if __name__ == '__main__':

@@ -1,8 +1,10 @@
 """
-Enhanced MCP Service with better error handling and fallback mechanisms
+Enhanced MCP Service with proper event loop handling
 """
 import asyncio
 import json
+import threading
+import concurrent.futures
 from typing import Any, Dict, List, Optional
 from mcp.mcp_client import (
     mcp_client,
@@ -13,34 +15,25 @@ from mcp.mcp_client import (
 )
 
 class MCPService:
-    """Enhanced service for handling MCP operations in Flask context with fallbacks"""
+    """Enhanced service for handling MCP operations in Flask context with proper event loop handling"""
     
     def __init__(self):
         self.client = mcp_client
-        self._loop = None
         self.fallback_mode = False
+        self.executor = concurrent.futures.ThreadPoolExecutor(max_workers=4)
 
-    def _get_event_loop(self):
-        """Get or create event loop for async operations"""
+    def _run_async_safe(self, coro):
+        """Safely run async coroutine in sync context"""
         try:
-            return asyncio.get_event_loop()
-        except RuntimeError:
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
-            return loop
-
-    def _run_async(self, coro):
-        """Run async coroutine in sync context with error handling"""
-        try:
-            loop = self._get_event_loop()
-            if loop.is_running():
-                # If loop is already running, create a new task
-                import concurrent.futures
-                with concurrent.futures.ThreadPoolExecutor() as executor:
-                    future = executor.submit(asyncio.run, coro)
-                    return future.result(timeout=30)  # 30 second timeout
-            else:
-                return loop.run_until_complete(coro)
+            # Try to get the current event loop
+            try:
+                loop = asyncio.get_running_loop()
+                # If there's already a running loop, use a thread executor
+                future = self.executor.submit(asyncio.run, coro)
+                return future.result(timeout=30)
+            except RuntimeError:
+                # No running loop, we can run directly
+                return asyncio.run(coro)
         except Exception as e:
             print(f"[MCP Async Error] {e}")
             self.fallback_mode = True
@@ -52,7 +45,7 @@ class MCPService:
             return {'success': False, 'error': 'MCP in fallback mode'}
             
         try:
-            result = self._run_async(save_message_mcp(user_id, session_id, role, message))
+            result = self._run_async_safe(save_message_mcp(user_id, session_id, role, message))
             return {
                 'success': True,
                 'result': result
@@ -70,7 +63,7 @@ class MCPService:
             return {'success': False, 'error': 'MCP in fallback mode', 'documents': []}
             
         try:
-            result = self._run_async(search_documents_mcp(session_id, query, top_k))
+            result = self._run_async_safe(search_documents_mcp(session_id, query, top_k))
             # Parse JSON result if it's a string
             if isinstance(result, str):
                 try:
@@ -97,7 +90,7 @@ class MCPService:
             return {'success': False, 'error': 'MCP in fallback mode'}
             
         try:
-            result = self._run_async(generate_image_mcp(prompt))
+            result = self._run_async_safe(generate_image_mcp(prompt))
             # Parse JSON result if it's a string
             if isinstance(result, str):
                 try:
@@ -146,9 +139,11 @@ class MCPService:
                     "num_results": num_results
                 }
             
-            result = self._run_async(
-                self.client.call_tool('web_search', tool_name, arguments)
-            )
+            # Create the coroutine for the tool call
+            async def call_tool():
+                return await self.client.call_tool('web_search', tool_name, arguments)
+            
+            result = self._run_async_safe(call_tool())
             
             # Parse JSON result if it's a string
             if isinstance(result, str):
@@ -176,13 +171,14 @@ class MCPService:
             return {'success': False, 'error': 'MCP in fallback mode'}
             
         try:
-            result = self._run_async(
-                self.client.call_tool('web_search', 'search_news', {
+            async def call_tool():
+                return await self.client.call_tool('web_search', 'search_news', {
                     'query': query,
                     'num_results': num_results,
                     'time_range': time_range
                 })
-            )
+            
+            result = self._run_async_safe(call_tool())
             
             # Parse JSON result if it's a string
             if isinstance(result, str):
@@ -208,13 +204,14 @@ class MCPService:
             return {'success': False, 'error': 'MCP in fallback mode'}
             
         try:
-            result = self._run_async(
-                self.client.call_tool('web_search', 'search_images', {
+            async def call_tool():
+                return await self.client.call_tool('web_search', 'search_images', {
                     'query': query,
                     'num_results': num_results,
                     'safe_search': safe_search
                 })
-            )
+            
+            result = self._run_async_safe(call_tool())
             
             # Parse JSON result if it's a string
             if isinstance(result, str):
@@ -240,12 +237,13 @@ class MCPService:
             return {'success': False, 'error': 'MCP in fallback mode'}
             
         try:
-            result = self._run_async(
-                self.client.call_tool('web_search', 'search_videos', {
+            async def call_tool():
+                return await self.client.call_tool('web_search', 'search_videos', {
                     'query': query,
                     'num_results': num_results
                 })
-            )
+            
+            result = self._run_async_safe(call_tool())
             
             # Parse JSON result if it's a string
             if isinstance(result, str):
@@ -277,10 +275,11 @@ class MCPService:
             }
             if location:
                 arguments['location'] = location
+            
+            async def call_tool():
+                return await self.client.call_tool('web_search', 'search_places', arguments)
                 
-            result = self._run_async(
-                self.client.call_tool('web_search', 'search_places', arguments)
-            )
+            result = self._run_async_safe(call_tool())
             
             # Parse JSON result if it's a string
             if isinstance(result, str):
@@ -306,12 +305,13 @@ class MCPService:
             return {'success': False, 'error': 'MCP in fallback mode'}
             
         try:
-            result = self._run_async(
-                self.client.call_tool('web_search', 'get_webpage_content', {
+            async def call_tool():
+                return await self.client.call_tool('web_search', 'get_webpage_content', {
                     'url': url,
                     'max_length': max_length
                 })
-            )
+            
+            result = self._run_async_safe(call_tool())
             
             # Parse JSON result if it's a string
             if isinstance(result, str):
@@ -337,13 +337,14 @@ class MCPService:
             return {'success': False, 'error': 'MCP in fallback mode'}
             
         try:
-            result = self._run_async(
-                self.client.call_tool('vector', 'add_documents', {
+            async def call_tool():
+                return await self.client.call_tool('vector', 'add_documents', {
                     'session_id': session_id,
                     'documents': documents,
                     'filename': filename
                 })
-            )
+            
+            result = self._run_async_safe(call_tool())
             return {
                 'success': True,
                 'result': result
@@ -361,11 +362,12 @@ class MCPService:
             return {'success': False, 'error': 'MCP in fallback mode'}
             
         try:
-            result = self._run_async(
-                self.client.call_tool('vector', 'process_document', {
+            async def call_tool():
+                return await self.client.call_tool('vector', 'process_document', {
                     'file_path': file_path
                 })
-            )
+            
+            result = self._run_async_safe(call_tool())
             # Parse JSON result if it's a string
             if isinstance(result, str):
                 try:
@@ -390,11 +392,12 @@ class MCPService:
             return {'success': False, 'error': 'MCP in fallback mode'}
             
         try:
-            result = self._run_async(
-                self.client.call_tool('image', 'analyze_image', {
+            async def call_tool():
+                return await self.client.call_tool('image', 'analyze_image', {
                     'image_path': image_path
                 })
-            )
+            
+            result = self._run_async_safe(call_tool())
             # Parse JSON result if it's a string
             if isinstance(result, str):
                 try:
@@ -438,7 +441,10 @@ class MCPService:
             all_tools = {}
             for server_name in ['database', 'vector', 'image', 'web_search']:
                 try:
-                    tools = self._run_async(self.client.list_tools(server_name))
+                    async def call_list_tools():
+                        return await self.client.list_tools(server_name)
+                    
+                    tools = self._run_async_safe(call_list_tools())
                     all_tools[server_name] = tools
                 except Exception as e:
                     print(f"[MCP List Tools Error for {server_name}] {e}")
@@ -459,7 +465,10 @@ class MCPService:
     def close_connections(self):
         """Close all MCP connections"""
         try:
-            self._run_async(self.client.close_all_connections())
+            async def close_all():
+                return await self.client.close_all_connections()
+            
+            self._run_async_safe(close_all())
             return {'success': True}
         except Exception as e:
             print(f"[MCP Close Connections Error] {e}")
@@ -473,3 +482,10 @@ class MCPService:
     def is_available(self) -> bool:
         """Check if MCP is available"""
         return not self.fallback_mode
+
+    def __del__(self):
+        """Cleanup executor on deletion"""
+        try:
+            self.executor.shutdown(wait=False)
+        except:
+            pass
