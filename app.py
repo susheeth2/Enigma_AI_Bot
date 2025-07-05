@@ -13,7 +13,7 @@ def create_app():
     app = Flask(__name__)
     app.config.from_object(Config)
     
-    # Register all routes
+    # Register all routes (including new MCP routes)
     register_routes(app)
     
     return app
@@ -27,6 +27,21 @@ def main():
         print("Database initialized successfully!")
     except Exception as e:
         print(f"Database initialization error: {str(e)}")
+    
+    # Optional: Start MCP servers automatically
+    try:
+        from mcp_startup import MCPServerManager
+        mcp_manager = MCPServerManager()
+        print("\n🤖 Starting MCP servers...")
+        mcp_manager.start_all_servers()
+        
+        # Register cleanup on app shutdown
+        import atexit
+        atexit.register(lambda: mcp_manager.stop_all_servers())
+        
+    except Exception as e:
+        print(f"⚠️  MCP servers could not be started: {str(e)}")
+        print("   Application will run without MCP integration")
     
     app.run(
         debug=os.getenv('DEBUG', 'true').lower() == 'true',

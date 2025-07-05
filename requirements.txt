@@ -12,3 +12,5 @@ python-dotenv
 werkzeug
 openai
 nomic
+mcp
+asyncio

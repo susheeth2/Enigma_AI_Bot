@@ -2,6 +2,7 @@ from .auth_routes import auth_bp
 from .chat_routes import chat_bp
 from .image_routes import image_bp
 from .api_routes import api_bp
+from .mcp_routes import mcp_bp
 
 def register_routes(app):
     """Register all route blueprints"""
@@ -9,3 +10,4 @@ def register_routes(app):
     app.register_blueprint(chat_bp)
     app.register_blueprint(image_bp)
     app.register_blueprint(api_bp)
+    app.register_blueprint(mcp_bp)
