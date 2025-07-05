@@ -3,130 +3,16 @@
 {% block title %}Login - Enigma AI Bot{% endblock %}
 
 {% block styles %}
-<style>
-    .login-container {
-        min-height: 100vh;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-        padding: 1rem;
-    }
-
-    .login-card {
-        width: 100%;
-        max-width: 400px;
-        background: var(--surface);
-        border-radius: var(--radius-lg);
-        box-shadow: var(--shadow-lg);
-        overflow: hidden;
-    }
-
-    .login-header {
-        background: linear-gradient(135deg, var(--primary-color), var(--primary-dark));
-        color: white;
-        padding: 2rem;
-        text-align: center;
-    }
-
-    .login-header .logo {
-        font-size: 3rem;
-        margin-bottom: 0.5rem;
-    }
-
-    .login-header h1 {
-        font-size: 1.5rem;
-        font-weight: 600;
-        margin-bottom: 0.25rem;
-    }
-
-    .login-header p {
-        opacity: 0.9;
-        font-size: 0.875rem;
-    }
-
-    .login-body {
-        padding: 2rem;
-    }
-
-    .tab-buttons {
-        display: flex;
-        background: var(--surface-dark);
-        border-radius: var(--radius);
-        padding: 0.25rem;
-        margin-bottom: 2rem;
-    }
-
-    .tab-button {
-        flex: 1;
-        padding: 0.75rem;
-        background: transparent;
-        border: none;
-        border-radius: calc(var(--radius) - 0.25rem);
-        font-weight: 500;
-        cursor: pointer;
-        transition: all 0.2s ease;
-        color: var(--text-secondary);
-    }
-
-    .tab-button.active {
-        background: var(--surface);
-        color: var(--text-primary);
-        box-shadow: var(--shadow);
-    }
-
-    .form-container {
-        position: relative;
-    }
-
-    .form {
-        display: none;
-    }
-
-    .form.active {
-        display: block;
-    }
-
-    .form-group {
-        margin-bottom: 1.5rem;
-    }
-
-    .form-input {
-        padding: 1rem;
-        font-size: 1rem;
-    }
-
-    .submit-btn {
-        width: 100%;
-        padding: 1rem;
-        font-size: 1rem;
-        font-weight: 600;
-        background: linear-gradient(135deg, var(--primary-color), var(--primary-dark));
-        color: white;
-        border: none;
-        border-radius: var(--radius);
-        cursor: pointer;
-        transition: all 0.2s ease;
-    }
-
-    .submit-btn:hover {
-        transform: translateY(-1px);
-        box-shadow: var(--shadow-lg);
-    }
-
-    .footer {
-        text-align: center;
-        padding: 1.5rem;
-        color: var(--text-secondary);
-        font-size: 0.875rem;
-        border-top: 1px solid var(--border);
-        background: var(--surface-dark);
-    }
-</style>
+<link rel="stylesheet" href="/static/css/login.css">
 {% endblock %}
 
 {% block content %}
 <div class="login-container">
+    <!-- Theme Switcher -->
+    <div class="login-theme-switcher">
+        <!-- Theme switcher will be inserted here by theme-switcher.js -->
+    </div>
+
     <div class="login-card">
         <div class="login-header">
             <div class="logo">🤖</div>
@@ -139,7 +25,8 @@
             {% with messages = get_flashed_messages(with_categories=true) %}
                 {% if messages %}
                     {% for category, message in messages %}
-                        <div class="alert alert-{{ 'success' if category == 'success' else 'error' }}">
+                        <div class="alert alert-{{ 'success' if category == 'success' else 'error' }}" role="alert">
+                            <i class="fas fa-{{ 'check-circle' if category == 'success' else 'exclamation-triangle' }}"></i>
                             {{ message }}
                         </div>
                     {% endfor %}
@@ -147,24 +34,75 @@
             {% endwith %}
 
             <!-- Tab Buttons -->
-            <div class="tab-buttons">
-                <button class="tab-button active" onclick="showForm('login')">Login</button>
-                <button class="tab-button" onclick="showForm('register')">Register</button>
+            <div class="tab-buttons" role="tablist" aria-label="Login or Register">
+                <button 
+                    class="tab-button active" 
+                    role="tab"
+                    aria-selected="true"
+                    aria-controls="login-form"
+                    onclick="showForm('login')"
+                >
+                    <i class="fas fa-sign-in-alt"></i>
+                    Login
+                </button>
+                <button 
+                    class="tab-button" 
+                    role="tab"
+                    aria-selected="false"
+                    aria-controls="register-form"
+                    onclick="showForm('register')"
+                >
+                    <i class="fas fa-user-plus"></i>
+                    Register
+                </button>
             </div>
 
             <div class="form-container">
                 <!-- Login Form -->
-                <form id="login-form" class="form active" method="POST">
+                <form 
+                    id="login-form" 
+                    class="form active" 
+                    method="POST"
+                    role="tabpanel"
+                    aria-labelledby="login-tab"
+                    novalidate
+                >
                     <input type="hidden" name="action" value="login">
                     
                     <div class="form-group">
-                        <label class="form-label" for="login-username">Username</label>
-                        <input type="text" id="login-username" name="username" class="form-input" required>
+                        <label class="form-label" for="login-username">
+                            <i class="fas fa-user"></i>
+                            Username
+                        </label>
+                        <input 
+                            type="text" 
+                            id="login-username" 
+                            name="username" 
+                            class="form-input" 
+                            required
+                            autocomplete="username"
+                            placeholder="Enter your username"
+                            aria-describedby="username-help"
+                        >
+                        <small id="username-help" class="sr-only">Enter the username you created when registering</small>
                     </div>
 
                     <div class="form-group">
-                        <label class="form-label" for="login-password">Password</label>
-                        <input type="password" id="login-password" name="password" class="form-input" required>
+                        <label class="form-label" for="login-password">
+                            <i class="fas fa-lock"></i>
+                            Password
+                        </label>
+                        <input 
+                            type="password" 
+                            id="login-password" 
+                            name="password" 
+                            class="form-input" 
+                            required
+                            autocomplete="current-password"
+                            placeholder="Enter your password"
+                            aria-describedby="password-help"
+                        >
+                        <small id="password-help" class="sr-only">Enter your account password</small>
                     </div>
 
                     <button type="submit" class="submit-btn">
@@ -174,22 +112,67 @@
                 </form>
 
                 <!-- Register Form -->
-                <form id="register-form" class="form" method="POST">
+                <form 
+                    id="register-form" 
+                    class="form" 
+                    method="POST"
+                    role="tabpanel"
+                    aria-labelledby="register-tab"
+                    novalidate
+                >
                     <input type="hidden" name="action" value="register">
                     
                     <div class="form-group">
-                        <label class="form-label" for="register-username">Username</label>
-                        <input type="text" id="register-username" name="username" class="form-input" required>
+                        <label class="form-label" for="register-username">
+                            <i class="fas fa-user"></i>
+                            Username
+                        </label>
+                        <input 
+                            type="text" 
+                            id="register-username" 
+                            name="username" 
+                            class="form-input" 
+                            required
+                            autocomplete="username"
+                            placeholder="Choose a username"
+                            aria-describedby="register-username-help"
+                        >
+                        <small id="register-username-help" class="sr-only">Choose a unique username (minimum 3 characters)</small>
                     </div>
 
                     <div class="form-group">
-                        <label class="form-label" for="register-email">Email (Optional)</label>
-                        <input type="email" id="register-email" name="email" class="form-input">
+                        <label class="form-label" for="register-email">
+                            <i class="fas fa-envelope"></i>
+                            Email (Optional)
+                        </label>
+                        <input 
+                            type="email" 
+                            id="register-email" 
+                            name="email" 
+                            class="form-input"
+                            autocomplete="email"
+                            placeholder="your.email@example.com"
+                            aria-describedby="register-email-help"
+                        >
+                        <small id="register-email-help" class="sr-only">Optional: Provide an email for account recovery</small>
                     </div>
 
                     <div class="form-group">
-                        <label class="form-label" for="register-password">Password</label>
-                        <input type="password" id="register-password" name="password" class="form-input" required>
+                        <label class="form-label" for="register-password">
+                            <i class="fas fa-lock"></i>
+                            Password
+                        </label>
+                        <input 
+                            type="password" 
+                            id="register-password" 
+                            name="password" 
+                            class="form-input" 
+                            required
+                            autocomplete="new-password"
+                            placeholder="Create a secure password"
+                            aria-describedby="register-password-help"
+                        >
+                        <small id="register-password-help" class="sr-only">Create a strong password (minimum 6 characters)</small>
                     </div>
 
                     <button type="submit" class="submit-btn">
@@ -201,50 +184,48 @@
         </div>
 
         <div class="footer">
-            <p>Welcome to your AI-powered assistant</p>
+            <p>
+                <i class="fas fa-shield-alt"></i>
+                Welcome to your AI-powered assistant
+            </p>
         </div>
     </div>
 </div>
 {% endblock %}
 
 {% block scripts %}
+<script src="/static/js/login.js"></script>
 <script>
-    function showForm(formType) {
-        // Update tab buttons
-        document.querySelectorAll('.tab-button').forEach(btn => {
-            btn.classList.remove('active');
-        });
-        event.target.classList.add('active');
-
-        // Update forms
-        document.querySelectorAll('.form').forEach(form => {
-            form.classList.remove('active');
-        });
-        document.getElementById(formType + '-form').classList.add('active');
+// Additional login page specific functionality
+document.addEventListener('DOMContentLoaded', function() {
+    // Add theme switcher to login page
+    const themeSwitcherContainer = document.querySelector('.login-theme-switcher');
+    if (themeSwitcherContainer && window.themeSwitcher) {
+        // Clone the theme switcher from settings or create a new one
+        const existingThemeSwitcher = document.querySelector('.theme-switcher');
+        if (existingThemeSwitcher) {
+            const clonedSwitcher = existingThemeSwitcher.cloneNode(true);
+            themeSwitcherContainer.appendChild(clonedSwitcher);
+        }
     }
-
-    // Form validation
-    document.addEventListener('DOMContentLoaded', function() {
-        const forms = document.querySelectorAll('form');
-        
-        forms.forEach(form => {
-            form.addEventListener('submit', function(e) {
-                const username = form.querySelector('input[name="username"]').value;
-                const password = form.querySelector('input[name="password"]').value;
-                
-                if (username.length < 3) {
-                    alert('Username must be at least 3 characters long');
-                    e.preventDefault();
-                    return;
-                }
-                
-                if (password.length < 6) {
-                    alert('Password must be at least 6 characters long');
-                    e.preventDefault();
-                    return;
-                }
-            });
+    
+    // Handle form switching with URL hash
+    const hash = window.location.hash;
+    if (hash === '#register') {
+        window.loginManager.showForm('register');
+    }
+    
+    // Update URL hash when switching forms
+    document.querySelectorAll('.tab-button').forEach(button => {
+        button.addEventListener('click', function() {
+            const formType = this.textContent.toLowerCase().trim();
+            if (formType === 'register') {
+                window.location.hash = '#register';
+            } else {
+                window.location.hash = '';
+            }
         });
     });
+});
 </script>
 {% endblock %}
