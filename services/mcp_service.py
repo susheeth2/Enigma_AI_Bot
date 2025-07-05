@@ -1,428 +1,323 @@
 """
-Enhanced MCP Service with proper event loop handling
+Enhanced MCP Service with complete event loop isolation
 """
 import asyncio
 import json
 import threading
 import concurrent.futures
+import time
 from typing import Any, Dict, List, Optional
-from mcp.mcp_client import (
-    mcp_client,
-    save_message_mcp,
-    search_documents_mcp,
-    generate_image_mcp,
-    web_search_mcp
-)
 
 class MCPService:
-    """Enhanced service for handling MCP operations in Flask context with proper event loop handling"""
+    """Enhanced service for handling MCP operations with complete event loop isolation"""
     
     def __init__(self):
-        self.client = mcp_client
         self.fallback_mode = False
-        self.executor = concurrent.futures.ThreadPoolExecutor(max_workers=4)
+        self.executor = concurrent.futures.ThreadPoolExecutor(max_workers=2)
+        self._lock = threading.Lock()
 
-    def _run_async_safe(self, coro):
-        """Safely run async coroutine in sync context"""
-        try:
-            # Try to get the current event loop
+    def _run_in_isolated_thread(self, func, *args, **kwargs):
+        """Run function in completely isolated thread with its own event loop"""
+        def isolated_runner():
             try:
-                loop = asyncio.get_running_loop()
-                # If there's already a running loop, use a thread executor
-                future = self.executor.submit(asyncio.run, coro)
-                return future.result(timeout=30)
-            except RuntimeError:
-                # No running loop, we can run directly
-                return asyncio.run(coro)
+                # Create a new event loop for this thread
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+                
+                try:
+                    if asyncio.iscoroutinefunction(func):
+                        result = loop.run_until_complete(func(*args, **kwargs))
+                    else:
+                        result = func(*args, **kwargs)
+                    return {'success': True, 'result': result}
+                finally:
+                    loop.close()
+                    
+            except Exception as e:
+                print(f"[MCP Isolated Thread Error] {e}")
+                return {'success': False, 'error': str(e)}
+        
+        try:
+            future = self.executor.submit(isolated_runner)
+            result = future.result(timeout=30)
+            return result
+        except concurrent.futures.TimeoutError:
+            return {'success': False, 'error': 'Operation timed out'}
         except Exception as e:
-            print(f"[MCP Async Error] {e}")
-            self.fallback_mode = True
-            raise e
+            return {'success': False, 'error': str(e)}
 
     def save_message(self, user_id: int, session_id: str, role: str, message: str) -> Dict[str, Any]:
-        """Save message using MCP database server with fallback"""
+        """Save message using MCP database server with complete isolation"""
         if self.fallback_mode:
             return {'success': False, 'error': 'MCP in fallback mode'}
-            
-        try:
-            result = self._run_async_safe(save_message_mcp(user_id, session_id, role, message))
-            return {
-                'success': True,
-                'result': result
-            }
-        except Exception as e:
-            print(f"[MCP Save Message Error] {e}")
-            return {
-                'success': False,
-                'error': str(e)
-            }
+        
+        with self._lock:
+            try:
+                # Use direct HTTP call instead of async MCP client
+                result = self._direct_mcp_call('database', 'save_message', {
+                    'user_id': user_id,
+                    'session_id': session_id,
+                    'role': role,
+                    'message': message
+                })
+                return result
+            except Exception as e:
+                print(f"[MCP Save Message Error] {e}")
+                self.fallback_mode = True
+                return {'success': False, 'error': str(e)}
 
     def search_documents(self, session_id: str, query: str, top_k: int = 5) -> Dict[str, Any]:
-        """Search documents using MCP vector server with fallback"""
+        """Search documents using MCP vector server with complete isolation"""
         if self.fallback_mode:
             return {'success': False, 'error': 'MCP in fallback mode', 'documents': []}
-            
-        try:
-            result = self._run_async_safe(search_documents_mcp(session_id, query, top_k))
-            # Parse JSON result if it's a string
-            if isinstance(result, str):
-                try:
-                    result = json.loads(result)
-                except json.JSONDecodeError:
-                    pass
-            
-            return {
-                'success': True,
-                'documents': result if isinstance(result, list) else [],
-                'raw_result': result
-            }
-        except Exception as e:
-            print(f"[MCP Search Documents Error] {e}")
-            return {
-                'success': False,
-                'error': str(e),
-                'documents': []
-            }
+        
+        with self._lock:
+            try:
+                result = self._direct_mcp_call('vector', 'search_documents', {
+                    'session_id': session_id,
+                    'query': query,
+                    'top_k': top_k
+                })
+                
+                if result['success']:
+                    # Parse the result if it's a string
+                    documents = result.get('result', [])
+                    if isinstance(documents, str):
+                        try:
+                            documents = json.loads(documents)
+                        except json.JSONDecodeError:
+                            documents = []
+                    
+                    return {
+                        'success': True,
+                        'documents': documents if isinstance(documents, list) else [],
+                        'raw_result': result.get('result')
+                    }
+                else:
+                    return {
+                        'success': False,
+                        'error': result.get('error', 'Unknown error'),
+                        'documents': []
+                    }
+            except Exception as e:
+                print(f"[MCP Search Documents Error] {e}")
+                return {'success': False, 'error': str(e), 'documents': []}
 
     def generate_image(self, prompt: str) -> Dict[str, Any]:
-        """Generate image using MCP image server with fallback"""
+        """Generate image using MCP image server with complete isolation"""
         if self.fallback_mode:
             return {'success': False, 'error': 'MCP in fallback mode'}
-            
-        try:
-            result = self._run_async_safe(generate_image_mcp(prompt))
-            # Parse JSON result if it's a string
-            if isinstance(result, str):
-                try:
-                    result = json.loads(result)
-                except json.JSONDecodeError:
-                    pass
-            
-            return {
-                'success': True,
-                'result': result
-            }
-        except Exception as e:
-            print(f"[MCP Generate Image Error] {e}")
-            return {
-                'success': False,
-                'error': str(e)
-            }
+        
+        with self._lock:
+            try:
+                result = self._direct_mcp_call('image', 'generate_image', {
+                    'prompt': prompt
+                })
+                
+                if result['success']:
+                    image_result = result.get('result')
+                    if isinstance(image_result, str):
+                        try:
+                            image_result = json.loads(image_result)
+                        except json.JSONDecodeError:
+                            pass
+                    
+                    return {
+                        'success': True,
+                        'result': image_result
+                    }
+                else:
+                    return result
+            except Exception as e:
+                print(f"[MCP Generate Image Error] {e}")
+                return {'success': False, 'error': str(e)}
 
     def web_search(self, query: str, num_results: int = 5, search_type: str = "web") -> Dict[str, Any]:
-        """Perform web search using MCP web search server with Serper.dev"""
+        """Perform web search using MCP web search server with complete isolation"""
         if self.fallback_mode:
             return {'success': False, 'error': 'MCP in fallback mode', 'search_type': search_type}
-            
-        try:
-            # Map search types to MCP tools
-            tool_mapping = {
-                "web": "web_search",
-                "news": "search_news", 
-                "images": "search_images",
-                "videos": "search_videos",
-                "places": "search_places"
-            }
-            
-            tool_name = tool_mapping.get(search_type, "web_search")
-            
-            # Prepare arguments based on search type
-            if search_type == "places":
-                arguments = {
-                    "query": query,
-                    "num_results": num_results,
-                    "location": "United States"  # Default location
+        
+        with self._lock:
+            try:
+                # Map search types to MCP tools
+                tool_mapping = {
+                    "web": "web_search",
+                    "news": "search_news", 
+                    "images": "search_images",
+                    "videos": "search_videos",
+                    "places": "search_places"
                 }
-            else:
-                arguments = {
-                    "query": query,
-                    "num_results": num_results
-                }
-            
-            # Create the coroutine for the tool call
-            async def call_tool():
-                return await self.client.call_tool('web_search', tool_name, arguments)
-            
-            result = self._run_async_safe(call_tool())
-            
-            # Parse JSON result if it's a string
-            if isinstance(result, str):
-                try:
-                    result = json.loads(result)
-                except json.JSONDecodeError:
-                    pass
-            
-            return {
-                'success': True,
-                'results': result,
-                'search_type': search_type
-            }
-        except Exception as e:
-            print(f"[MCP Web Search Error] {e}")
-            return {
-                'success': False,
-                'error': str(e),
-                'search_type': search_type
-            }
-
-    def search_news(self, query: str, num_results: int = 5, time_range: str = "qdr:d") -> Dict[str, Any]:
-        """Search news using MCP web search server"""
-        if self.fallback_mode:
-            return {'success': False, 'error': 'MCP in fallback mode'}
-            
-        try:
-            async def call_tool():
-                return await self.client.call_tool('web_search', 'search_news', {
-                    'query': query,
-                    'num_results': num_results,
-                    'time_range': time_range
-                })
-            
-            result = self._run_async_safe(call_tool())
-            
-            # Parse JSON result if it's a string
-            if isinstance(result, str):
-                try:
-                    result = json.loads(result)
-                except json.JSONDecodeError:
-                    pass
-            
-            return {
-                'success': True,
-                'results': result
-            }
-        except Exception as e:
-            print(f"[MCP Search News Error] {e}")
-            return {
-                'success': False,
-                'error': str(e)
-            }
-
-    def search_images(self, query: str, num_results: int = 5, safe_search: bool = True) -> Dict[str, Any]:
-        """Search images using MCP web search server"""
-        if self.fallback_mode:
-            return {'success': False, 'error': 'MCP in fallback mode'}
-            
-        try:
-            async def call_tool():
-                return await self.client.call_tool('web_search', 'search_images', {
-                    'query': query,
-                    'num_results': num_results,
-                    'safe_search': safe_search
-                })
-            
-            result = self._run_async_safe(call_tool())
-            
-            # Parse JSON result if it's a string
-            if isinstance(result, str):
-                try:
-                    result = json.loads(result)
-                except json.JSONDecodeError:
-                    pass
-            
-            return {
-                'success': True,
-                'results': result
-            }
-        except Exception as e:
-            print(f"[MCP Search Images Error] {e}")
-            return {
-                'success': False,
-                'error': str(e)
-            }
-
-    def search_videos(self, query: str, num_results: int = 5) -> Dict[str, Any]:
-        """Search videos using MCP web search server"""
-        if self.fallback_mode:
-            return {'success': False, 'error': 'MCP in fallback mode'}
-            
-        try:
-            async def call_tool():
-                return await self.client.call_tool('web_search', 'search_videos', {
-                    'query': query,
-                    'num_results': num_results
-                })
-            
-            result = self._run_async_safe(call_tool())
-            
-            # Parse JSON result if it's a string
-            if isinstance(result, str):
-                try:
-                    result = json.loads(result)
-                except json.JSONDecodeError:
-                    pass
-            
-            return {
-                'success': True,
-                'results': result
-            }
-        except Exception as e:
-            print(f"[MCP Search Videos Error] {e}")
-            return {
-                'success': False,
-                'error': str(e)
-            }
-
-    def search_places(self, query: str, location: str = None, num_results: int = 5) -> Dict[str, Any]:
-        """Search places using MCP web search server"""
-        if self.fallback_mode:
-            return {'success': False, 'error': 'MCP in fallback mode'}
-            
-        try:
-            arguments = {
-                'query': query,
-                'num_results': num_results
-            }
-            if location:
-                arguments['location'] = location
-            
-            async def call_tool():
-                return await self.client.call_tool('web_search', 'search_places', arguments)
                 
-            result = self._run_async_safe(call_tool())
-            
-            # Parse JSON result if it's a string
-            if isinstance(result, str):
-                try:
-                    result = json.loads(result)
-                except json.JSONDecodeError:
-                    pass
-            
-            return {
-                'success': True,
-                'results': result
-            }
-        except Exception as e:
-            print(f"[MCP Search Places Error] {e}")
-            return {
-                'success': False,
-                'error': str(e)
-            }
+                tool_name = tool_mapping.get(search_type, "web_search")
+                
+                # Prepare arguments based on search type
+                if search_type == "places":
+                    arguments = {
+                        "query": query,
+                        "num_results": num_results,
+                        "location": "United States"
+                    }
+                else:
+                    arguments = {
+                        "query": query,
+                        "num_results": num_results
+                    }
+                
+                result = self._direct_mcp_call('web_search', tool_name, arguments)
+                
+                if result['success']:
+                    search_result = result.get('result')
+                    if isinstance(search_result, str):
+                        try:
+                            search_result = json.loads(search_result)
+                        except json.JSONDecodeError:
+                            pass
+                    
+                    return {
+                        'success': True,
+                        'results': search_result,
+                        'search_type': search_type
+                    }
+                else:
+                    return {
+                        'success': False,
+                        'error': result.get('error', 'Unknown error'),
+                        'search_type': search_type
+                    }
+            except Exception as e:
+                print(f"[MCP Web Search Error] {e}")
+                return {'success': False, 'error': str(e), 'search_type': search_type}
 
-    def get_webpage_content(self, url: str, max_length: int = 5000) -> Dict[str, Any]:
-        """Extract webpage content using MCP web search server"""
-        if self.fallback_mode:
-            return {'success': False, 'error': 'MCP in fallback mode'}
-            
+    def _direct_mcp_call(self, server: str, tool: str, arguments: dict) -> Dict[str, Any]:
+        """Make direct call to MCP server without async client"""
         try:
-            async def call_tool():
-                return await self.client.call_tool('web_search', 'get_webpage_content', {
-                    'url': url,
-                    'max_length': max_length
-                })
+            import subprocess
+            import json
+            import tempfile
+            import os
             
-            result = self._run_async_safe(call_tool())
-            
-            # Parse JSON result if it's a string
-            if isinstance(result, str):
-                try:
-                    result = json.loads(result)
-                except json.JSONDecodeError:
-                    pass
-            
-            return {
-                'success': True,
-                'result': result
-            }
-        except Exception as e:
-            print(f"[MCP Get Webpage Content Error] {e}")
-            return {
-                'success': False,
-                'error': str(e)
-            }
+            # Create a simple script to call MCP server
+            script_content = f'''
+import asyncio
+import json
+import sys
+import subprocess
+from mcp.client.session import ClientSession
+from mcp.client.stdio import stdio_client
 
-    def add_documents_to_vector_store(self, session_id: str, documents: List[Dict], filename: str) -> Dict[str, Any]:
-        """Add documents to vector store using MCP vector server"""
-        if self.fallback_mode:
-            return {'success': False, 'error': 'MCP in fallback mode'}
-            
-        try:
-            async def call_tool():
-                return await self.client.call_tool('vector', 'add_documents', {
-                    'session_id': session_id,
-                    'documents': documents,
-                    'filename': filename
-                })
-            
-            result = self._run_async_safe(call_tool())
-            return {
-                'success': True,
-                'result': result
-            }
-        except Exception as e:
-            print(f"[MCP Add Documents Error] {e}")
-            return {
-                'success': False,
-                'error': str(e)
-            }
+async def call_mcp_tool():
+    try:
+        # Start the MCP server
+        process = await asyncio.create_subprocess_exec(
+            sys.executable, 'mcp/servers/{server}_server.py',
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE
+        )
+        
+        # Create client session
+        read_stream, write_stream = stdio_client(process)
+        session = ClientSession(read_stream, write_stream)
+        
+        # Initialize session
+        await session.initialize()
+        
+        # Call the tool
+        result = await session.call_tool('{tool}', {json.dumps(arguments)})
+        
+        # Close session
+        await session.close()
+        process.terminate()
+        await process.wait()
+        
+        # Return result
+        if hasattr(result, 'content') and result.content:
+            return result.content[0].text if hasattr(result.content[0], 'text') else str(result.content[0])
+        return str(result)
+        
+    except Exception as e:
+        return f"Error: {{str(e)}}"
 
-    def process_document(self, file_path: str) -> Dict[str, Any]:
-        """Process document using MCP vector server"""
-        if self.fallback_mode:
-            return {'success': False, 'error': 'MCP in fallback mode'}
+if __name__ == "__main__":
+    result = asyncio.run(call_mcp_tool())
+    print(result)
+'''
             
-        try:
-            async def call_tool():
-                return await self.client.call_tool('vector', 'process_document', {
-                    'file_path': file_path
-                })
+            # Write script to temporary file
+            with tempfile.NamedTemporaryFile(mode='w', suffix='.py', delete=False) as f:
+                f.write(script_content)
+                script_path = f.name
             
-            result = self._run_async_safe(call_tool())
-            # Parse JSON result if it's a string
-            if isinstance(result, str):
+            try:
+                # Run the script
+                result = subprocess.run(
+                    [sys.executable, script_path],
+                    capture_output=True,
+                    text=True,
+                    timeout=30,
+                    cwd=os.getcwd()
+                )
+                
+                if result.returncode == 0:
+                    output = result.stdout.strip()
+                    if output.startswith('Error:'):
+                        return {'success': False, 'error': output[6:]}
+                    else:
+                        return {'success': True, 'result': output}
+                else:
+                    return {'success': False, 'error': f'Script failed: {result.stderr}'}
+                    
+            finally:
+                # Clean up temporary file
                 try:
-                    result = json.loads(result)
-                except json.JSONDecodeError:
+                    os.unlink(script_path)
+                except:
                     pass
-            
-            return {
-                'success': True,
-                'result': result
-            }
+                    
         except Exception as e:
-            print(f"[MCP Process Document Error] {e}")
-            return {
-                'success': False,
-                'error': str(e)
-            }
-
-    def analyze_image(self, image_path: str) -> Dict[str, Any]:
-        """Analyze image using MCP image server"""
-        if self.fallback_mode:
-            return {'success': False, 'error': 'MCP in fallback mode'}
-            
-        try:
-            async def call_tool():
-                return await self.client.call_tool('image', 'analyze_image', {
-                    'image_path': image_path
-                })
-            
-            result = self._run_async_safe(call_tool())
-            # Parse JSON result if it's a string
-            if isinstance(result, str):
-                try:
-                    result = json.loads(result)
-                except json.JSONDecodeError:
-                    pass
-            
-            return {
-                'success': True,
-                'result': result
-            }
-        except Exception as e:
-            print(f"[MCP Analyze Image Error] {e}")
-            return {
-                'success': False,
-                'error': str(e)
-            }
+            print(f"[Direct MCP Call Error] {e}")
+            return {'success': False, 'error': str(e)}
 
     def get_server_status(self) -> Dict[str, Any]:
-        """Get status of all MCP servers"""
+        """Get status of all MCP servers using simple process check"""
         try:
-            status = self.client.get_server_status()
+            import psutil
+            
+            server_processes = {
+                'database': False,
+                'vector': False,
+                'image': False,
+                'web_search': False
+            }
+            
+            # Check if MCP server processes are running
+            for proc in psutil.process_iter(['pid', 'name', 'cmdline']):
+                try:
+                    cmdline = proc.info['cmdline']
+                    if cmdline and len(cmdline) > 1:
+                        script_path = cmdline[-1] if cmdline else ''
+                        
+                        for server_name in server_processes:
+                            if f'{server_name}_server.py' in script_path:
+                                server_processes[server_name] = True
+                                break
+                except (psutil.NoSuchProcess, psutil.AccessDenied):
+                    continue
+            
             return {
                 'success': True,
-                'servers': status
+                'servers': server_processes
+            }
+        except ImportError:
+            # Fallback if psutil is not available
+            return {
+                'success': True,
+                'servers': {
+                    'database': not self.fallback_mode,
+                    'vector': not self.fallback_mode,
+                    'image': not self.fallback_mode,
+                    'web_search': not self.fallback_mode
+                }
             }
         except Exception as e:
             print(f"[MCP Get Server Status Error] {e}")
@@ -433,46 +328,16 @@ class MCPService:
             }
 
     def list_available_tools(self) -> Dict[str, Any]:
-        """List all available tools across all servers"""
-        if self.fallback_mode:
-            return {'success': False, 'error': 'MCP in fallback mode', 'tools': {}}
-            
-        try:
-            all_tools = {}
-            for server_name in ['database', 'vector', 'image', 'web_search']:
-                try:
-                    async def call_list_tools():
-                        return await self.client.list_tools(server_name)
-                    
-                    tools = self._run_async_safe(call_list_tools())
-                    all_tools[server_name] = tools
-                except Exception as e:
-                    print(f"[MCP List Tools Error for {server_name}] {e}")
-                    all_tools[server_name] = []
-            
-            return {
-                'success': True,
-                'tools': all_tools
+        """List all available tools (simplified)"""
+        return {
+            'success': True,
+            'tools': {
+                'database': ['save_message', 'get_chat_history', 'get_session_messages'],
+                'vector': ['search_documents', 'add_documents', 'process_document'],
+                'image': ['generate_image', 'analyze_image'],
+                'web_search': ['web_search', 'search_news', 'search_images', 'search_videos', 'search_places']
             }
-        except Exception as e:
-            print(f"[MCP List Available Tools Error] {e}")
-            return {
-                'success': False,
-                'error': str(e),
-                'tools': {}
-            }
-
-    def close_connections(self):
-        """Close all MCP connections"""
-        try:
-            async def close_all():
-                return await self.client.close_all_connections()
-            
-            self._run_async_safe(close_all())
-            return {'success': True}
-        except Exception as e:
-            print(f"[MCP Close Connections Error] {e}")
-            return {'success': False, 'error': str(e)}
+        }
 
     def reset_fallback_mode(self):
         """Reset fallback mode to try MCP again"""
@@ -489,3 +354,83 @@ class MCPService:
             self.executor.shutdown(wait=False)
         except:
             pass
+
+    # Simplified methods for other operations
+    def search_news(self, query: str, num_results: int = 5, time_range: str = "qdr:d") -> Dict[str, Any]:
+        """Search news using simplified approach"""
+        return self.web_search(query, num_results, "news")
+
+    def search_images(self, query: str, num_results: int = 5, safe_search: bool = True) -> Dict[str, Any]:
+        """Search images using simplified approach"""
+        return self.web_search(query, num_results, "images")
+
+    def search_videos(self, query: str, num_results: int = 5) -> Dict[str, Any]:
+        """Search videos using simplified approach"""
+        return self.web_search(query, num_results, "videos")
+
+    def search_places(self, query: str, location: str = None, num_results: int = 5) -> Dict[str, Any]:
+        """Search places using simplified approach"""
+        return self.web_search(query, num_results, "places")
+
+    def get_webpage_content(self, url: str, max_length: int = 5000) -> Dict[str, Any]:
+        """Extract webpage content using simplified approach"""
+        if self.fallback_mode:
+            return {'success': False, 'error': 'MCP in fallback mode'}
+        
+        try:
+            result = self._direct_mcp_call('web_search', 'get_webpage_content', {
+                'url': url,
+                'max_length': max_length
+            })
+            return result
+        except Exception as e:
+            return {'success': False, 'error': str(e)}
+
+    def add_documents_to_vector_store(self, session_id: str, documents: List[Dict], filename: str) -> Dict[str, Any]:
+        """Add documents to vector store using simplified approach"""
+        if self.fallback_mode:
+            return {'success': False, 'error': 'MCP in fallback mode'}
+        
+        try:
+            result = self._direct_mcp_call('vector', 'add_documents', {
+                'session_id': session_id,
+                'documents': documents,
+                'filename': filename
+            })
+            return result
+        except Exception as e:
+            return {'success': False, 'error': str(e)}
+
+    def process_document(self, file_path: str) -> Dict[str, Any]:
+        """Process document using simplified approach"""
+        if self.fallback_mode:
+            return {'success': False, 'error': 'MCP in fallback mode'}
+        
+        try:
+            result = self._direct_mcp_call('vector', 'process_document', {
+                'file_path': file_path
+            })
+            return result
+        except Exception as e:
+            return {'success': False, 'error': str(e)}
+
+    def analyze_image(self, image_path: str) -> Dict[str, Any]:
+        """Analyze image using simplified approach"""
+        if self.fallback_mode:
+            return {'success': False, 'error': 'MCP in fallback mode'}
+        
+        try:
+            result = self._direct_mcp_call('image', 'analyze_image', {
+                'image_path': image_path
+            })
+            return result
+        except Exception as e:
+            return {'success': False, 'error': str(e)}
+
+    def close_connections(self):
+        """Close all MCP connections"""
+        try:
+            self.executor.shutdown(wait=True)
+            return {'success': True}
+        except Exception as e:
+            return {'success': False, 'error': str(e)}
