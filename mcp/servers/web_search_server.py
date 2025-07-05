@@ -1,5 +1,5 @@
 """
-MCP Server for Web Search Operations
+MCP Server for Web Search Operations using Serper.dev
 Exposes web search functionality as MCP tools
 """
 import asyncio
@@ -18,11 +18,13 @@ from mcp.types import (
     LoggingLevel
 )
 import os
+from datetime import datetime, timedelta
 
 class WebSearchMCPServer:
     def __init__(self):
         self.server = Server("web-search-server")
-        self.search_api_key = os.getenv('SEARCH_API_KEY')  # For future API integration
+        self.serper_api_key = os.getenv('SERPER_API_KEY')
+        self.serper_base_url = "https://google.serper.dev"
         self.setup_tools()
         self.setup_resources()
 
@@ -34,13 +36,67 @@ class WebSearchMCPServer:
             return [
                 Tool(
                     name="web_search",
-                    description="Search the web for information",
+                    description="Search the web using Google Search via Serper.dev",
                     inputSchema={
                         "type": "object",
                         "properties": {
                             "query": {"type": "string", "description": "Search query"},
-                            "num_results": {"type": "integer", "description": "Number of results", "default": 5},
+                            "num_results": {"type": "integer", "description": "Number of results (1-100)", "default": 10, "minimum": 1, "maximum": 100},
+                            "country": {"type": "string", "description": "Country code (e.g., 'us', 'uk', 'ca')", "default": "us"},
+                            "location": {"type": "string", "description": "Location for localized results", "default": "United States"},
+                            "language": {"type": "string", "description": "Language code (e.g., 'en', 'es', 'fr')", "default": "en"}
+                        },
+                        "required": ["query"]
+                    }
+                ),
+                Tool(
+                    name="search_news",
+                    description="Search for recent news articles using Serper.dev",
+                    inputSchema={
+                        "type": "object",
+                        "properties": {
+                            "query": {"type": "string", "description": "News search query"},
+                            "num_results": {"type": "integer", "description": "Number of results (1-100)", "default": 10, "minimum": 1, "maximum": 100},
+                            "country": {"type": "string", "description": "Country code for news", "default": "us"},
+                            "time_range": {"type": "string", "description": "Time range", "enum": ["qdr:h", "qdr:d", "qdr:w", "qdr:m", "qdr:y"], "default": "qdr:d"}
+                        },
+                        "required": ["query"]
+                    }
+                ),
+                Tool(
+                    name="search_images",
+                    description="Search for images using Serper.dev",
+                    inputSchema={
+                        "type": "object",
+                        "properties": {
+                            "query": {"type": "string", "description": "Image search query"},
+                            "num_results": {"type": "integer", "description": "Number of results (1-100)", "default": 10, "minimum": 1, "maximum": 100},
                             "safe_search": {"type": "boolean", "description": "Enable safe search", "default": True}
+                        },
+                        "required": ["query"]
+                    }
+                ),
+                Tool(
+                    name="search_videos",
+                    description="Search for videos using Serper.dev",
+                    inputSchema={
+                        "type": "object",
+                        "properties": {
+                            "query": {"type": "string", "description": "Video search query"},
+                            "num_results": {"type": "integer", "description": "Number of results (1-100)", "default": 10, "minimum": 1, "maximum": 100}
+                        },
+                        "required": ["query"]
+                    }
+                ),
+                Tool(
+                    name="search_places",
+                    description="Search for places and local businesses using Serper.dev",
+                    inputSchema={
+                        "type": "object",
+                        "properties": {
+                            "query": {"type": "string", "description": "Place search query"},
+                            "location": {"type": "string", "description": "Location to search around"},
+                            "num_results": {"type": "integer", "description": "Number of results (1-100)", "default": 10, "minimum": 1, "maximum": 100}
                         },
                         "required": ["query"]
                     }
@@ -56,18 +112,6 @@ class WebSearchMCPServer:
                         },
                         "required": ["url"]
                     }
-                ),
-                Tool(
-                    name="search_news",
-                    description="Search for recent news articles",
-                    inputSchema={
-                        "type": "object",
-                        "properties": {
-                            "query": {"type": "string", "description": "News search query"},
-                            "days_back": {"type": "integer", "description": "Days to search back", "default": 7}
-                        },
-                        "required": ["query"]
-                    }
                 )
             ]
 
@@ -77,8 +121,54 @@ class WebSearchMCPServer:
                 if name == "web_search":
                     results = await self._perform_web_search(
                         arguments["query"],
-                        arguments.get("num_results", 5),
+                        arguments.get("num_results", 10),
+                        arguments.get("country", "us"),
+                        arguments.get("location", "United States"),
+                        arguments.get("language", "en")
+                    )
+                    return [TextContent(
+                        type="text",
+                        text=json.dumps(results, indent=2)
+                    )]
+                
+                elif name == "search_news":
+                    results = await self._search_news(
+                        arguments["query"],
+                        arguments.get("num_results", 10),
+                        arguments.get("country", "us"),
+                        arguments.get("time_range", "qdr:d")
+                    )
+                    return [TextContent(
+                        type="text",
+                        text=json.dumps(results, indent=2)
+                    )]
+                
+                elif name == "search_images":
+                    results = await self._search_images(
+                        arguments["query"],
+                        arguments.get("num_results", 10),
                         arguments.get("safe_search", True)
+                    )
+                    return [TextContent(
+                        type="text",
+                        text=json.dumps(results, indent=2)
+                    )]
+                
+                elif name == "search_videos":
+                    results = await self._search_videos(
+                        arguments["query"],
+                        arguments.get("num_results", 10)
+                    )
+                    return [TextContent(
+                        type="text",
+                        text=json.dumps(results, indent=2)
+                    )]
+                
+                elif name == "search_places":
+                    results = await self._search_places(
+                        arguments["query"],
+                        arguments.get("location"),
+                        arguments.get("num_results", 10)
                     )
                     return [TextContent(
                         type="text",
@@ -95,16 +185,6 @@ class WebSearchMCPServer:
                         text=json.dumps(content, indent=2)
                     )]
                 
-                elif name == "search_news":
-                    news = await self._search_news(
-                        arguments["query"],
-                        arguments.get("days_back", 7)
-                    )
-                    return [TextContent(
-                        type="text",
-                        text=json.dumps(news, indent=2)
-                    )]
-                
                 else:
                     return [TextContent(
                         type="text",
@@ -117,36 +197,333 @@ class WebSearchMCPServer:
                     text=f"Error executing tool {name}: {str(e)}"
                 )]
 
-    async def _perform_web_search(self, query: str, num_results: int, safe_search: bool) -> Dict[str, Any]:
-        """Perform web search (placeholder implementation)"""
-        # This is a placeholder implementation
-        # In a real implementation, you would integrate with search APIs like:
-        # - Google Custom Search API
-        # - Bing Search API
-        # - DuckDuckGo API
-        # - SerpAPI
-        
-        return {
-            "query": query,
-            "num_results": num_results,
-            "safe_search": safe_search,
-            "results": [
-                {
-                    "title": f"Search result for '{query}' - Example 1",
-                    "url": "https://example.com/result1",
-                    "snippet": f"This is a placeholder search result for the query '{query}'. In a real implementation, this would contain actual search results from a search engine API.",
-                    "source": "Example.com"
-                },
-                {
-                    "title": f"Search result for '{query}' - Example 2",
-                    "url": "https://example.com/result2",
-                    "snippet": f"Another placeholder result for '{query}'. You would need to integrate with a real search API to get actual results.",
-                    "source": "Example.com"
-                }
-            ],
-            "status": "placeholder_implementation",
-            "message": "This is a placeholder implementation. Integrate with a real search API for actual results."
-        }
+    async def _perform_web_search(self, query: str, num_results: int, country: str, location: str, language: str) -> Dict[str, Any]:
+        """Perform web search using Serper.dev API"""
+        if not self.serper_api_key:
+            return {
+                "error": "SERPER_API_KEY not configured",
+                "message": "Please set SERPER_API_KEY environment variable"
+            }
+
+        try:
+            headers = {
+                'X-API-KEY': self.serper_api_key,
+                'Content-Type': 'application/json'
+            }
+
+            payload = {
+                'q': query,
+                'num': min(num_results, 100),
+                'gl': country,
+                'hl': language,
+                'location': location
+            }
+
+            response = requests.post(
+                f"{self.serper_base_url}/search",
+                headers=headers,
+                json=payload,
+                timeout=10
+            )
+            response.raise_for_status()
+            
+            data = response.json()
+            
+            # Format the response
+            formatted_results = {
+                "query": query,
+                "total_results": data.get("searchInformation", {}).get("totalResults", "0"),
+                "search_time": data.get("searchInformation", {}).get("searchTime", "0"),
+                "organic_results": [],
+                "knowledge_graph": data.get("knowledgeGraph"),
+                "answer_box": data.get("answerBox"),
+                "people_also_ask": data.get("peopleAlsoAsk", []),
+                "related_searches": data.get("relatedSearches", [])
+            }
+
+            # Process organic results
+            for result in data.get("organic", []):
+                formatted_results["organic_results"].append({
+                    "position": result.get("position"),
+                    "title": result.get("title"),
+                    "link": result.get("link"),
+                    "snippet": result.get("snippet"),
+                    "displayed_link": result.get("displayedLink"),
+                    "date": result.get("date"),
+                    "sitelinks": result.get("sitelinks", [])
+                })
+
+            return formatted_results
+
+        except requests.exceptions.RequestException as e:
+            return {
+                "error": f"API request failed: {str(e)}",
+                "query": query
+            }
+        except Exception as e:
+            return {
+                "error": f"Search failed: {str(e)}",
+                "query": query
+            }
+
+    async def _search_news(self, query: str, num_results: int, country: str, time_range: str) -> Dict[str, Any]:
+        """Search for news using Serper.dev API"""
+        if not self.serper_api_key:
+            return {
+                "error": "SERPER_API_KEY not configured",
+                "message": "Please set SERPER_API_KEY environment variable"
+            }
+
+        try:
+            headers = {
+                'X-API-KEY': self.serper_api_key,
+                'Content-Type': 'application/json'
+            }
+
+            payload = {
+                'q': query,
+                'num': min(num_results, 100),
+                'gl': country,
+                'tbm': 'nws',
+                'tbs': time_range
+            }
+
+            response = requests.post(
+                f"{self.serper_base_url}/search",
+                headers=headers,
+                json=payload,
+                timeout=10
+            )
+            response.raise_for_status()
+            
+            data = response.json()
+            
+            # Format the response
+            formatted_results = {
+                "query": query,
+                "time_range": time_range,
+                "news_results": []
+            }
+
+            # Process news results
+            for result in data.get("news", []):
+                formatted_results["news_results"].append({
+                    "position": result.get("position"),
+                    "title": result.get("title"),
+                    "link": result.get("link"),
+                    "snippet": result.get("snippet"),
+                    "date": result.get("date"),
+                    "source": result.get("source"),
+                    "image_url": result.get("imageUrl")
+                })
+
+            return formatted_results
+
+        except requests.exceptions.RequestException as e:
+            return {
+                "error": f"News search API request failed: {str(e)}",
+                "query": query
+            }
+        except Exception as e:
+            return {
+                "error": f"News search failed: {str(e)}",
+                "query": query
+            }
+
+    async def _search_images(self, query: str, num_results: int, safe_search: bool) -> Dict[str, Any]:
+        """Search for images using Serper.dev API"""
+        if not self.serper_api_key:
+            return {
+                "error": "SERPER_API_KEY not configured",
+                "message": "Please set SERPER_API_KEY environment variable"
+            }
+
+        try:
+            headers = {
+                'X-API-KEY': self.serper_api_key,
+                'Content-Type': 'application/json'
+            }
+
+            payload = {
+                'q': query,
+                'num': min(num_results, 100),
+                'tbm': 'isch',
+                'safe': 'active' if safe_search else 'off'
+            }
+
+            response = requests.post(
+                f"{self.serper_base_url}/search",
+                headers=headers,
+                json=payload,
+                timeout=10
+            )
+            response.raise_for_status()
+            
+            data = response.json()
+            
+            # Format the response
+            formatted_results = {
+                "query": query,
+                "image_results": []
+            }
+
+            # Process image results
+            for result in data.get("images", []):
+                formatted_results["image_results"].append({
+                    "position": result.get("position"),
+                    "title": result.get("title"),
+                    "image_url": result.get("imageUrl"),
+                    "image_width": result.get("imageWidth"),
+                    "image_height": result.get("imageHeight"),
+                    "thumbnail_url": result.get("thumbnailUrl"),
+                    "source": result.get("source"),
+                    "domain": result.get("domain"),
+                    "link": result.get("link")
+                })
+
+            return formatted_results
+
+        except requests.exceptions.RequestException as e:
+            return {
+                "error": f"Image search API request failed: {str(e)}",
+                "query": query
+            }
+        except Exception as e:
+            return {
+                "error": f"Image search failed: {str(e)}",
+                "query": query
+            }
+
+    async def _search_videos(self, query: str, num_results: int) -> Dict[str, Any]:
+        """Search for videos using Serper.dev API"""
+        if not self.serper_api_key:
+            return {
+                "error": "SERPER_API_KEY not configured",
+                "message": "Please set SERPER_API_KEY environment variable"
+            }
+
+        try:
+            headers = {
+                'X-API-KEY': self.serper_api_key,
+                'Content-Type': 'application/json'
+            }
+
+            payload = {
+                'q': query,
+                'num': min(num_results, 100),
+                'tbm': 'vid'
+            }
+
+            response = requests.post(
+                f"{self.serper_base_url}/search",
+                headers=headers,
+                json=payload,
+                timeout=10
+            )
+            response.raise_for_status()
+            
+            data = response.json()
+            
+            # Format the response
+            formatted_results = {
+                "query": query,
+                "video_results": []
+            }
+
+            # Process video results
+            for result in data.get("videos", []):
+                formatted_results["video_results"].append({
+                    "position": result.get("position"),
+                    "title": result.get("title"),
+                    "link": result.get("link"),
+                    "snippet": result.get("snippet"),
+                    "channel": result.get("channel"),
+                    "duration": result.get("duration"),
+                    "date": result.get("date"),
+                    "thumbnail": result.get("thumbnail")
+                })
+
+            return formatted_results
+
+        except requests.exceptions.RequestException as e:
+            return {
+                "error": f"Video search API request failed: {str(e)}",
+                "query": query
+            }
+        except Exception as e:
+            return {
+                "error": f"Video search failed: {str(e)}",
+                "query": query
+            }
+
+    async def _search_places(self, query: str, location: str, num_results: int) -> Dict[str, Any]:
+        """Search for places using Serper.dev API"""
+        if not self.serper_api_key:
+            return {
+                "error": "SERPER_API_KEY not configured",
+                "message": "Please set SERPER_API_KEY environment variable"
+            }
+
+        try:
+            headers = {
+                'X-API-KEY': self.serper_api_key,
+                'Content-Type': 'application/json'
+            }
+
+            payload = {
+                'q': query,
+                'num': min(num_results, 100),
+                'tbm': 'lcl'
+            }
+
+            if location:
+                payload['location'] = location
+
+            response = requests.post(
+                f"{self.serper_base_url}/search",
+                headers=headers,
+                json=payload,
+                timeout=10
+            )
+            response.raise_for_status()
+            
+            data = response.json()
+            
+            # Format the response
+            formatted_results = {
+                "query": query,
+                "location": location,
+                "place_results": []
+            }
+
+            # Process place results
+            for result in data.get("places", []):
+                formatted_results["place_results"].append({
+                    "position": result.get("position"),
+                    "title": result.get("title"),
+                    "address": result.get("address"),
+                    "latitude": result.get("latitude"),
+                    "longitude": result.get("longitude"),
+                    "rating": result.get("rating"),
+                    "rating_count": result.get("ratingCount"),
+                    "category": result.get("category"),
+                    "phone_number": result.get("phoneNumber"),
+                    "website": result.get("website"),
+                    "cid": result.get("cid")
+                })
+
+            return formatted_results
+
+        except requests.exceptions.RequestException as e:
+            return {
+                "error": f"Places search API request failed: {str(e)}",
+                "query": query
+            }
+        except Exception as e:
+            return {
+                "error": f"Places search failed: {str(e)}",
+                "query": query
+            }
 
     async def _extract_webpage_content(self, url: str, max_length: int) -> Dict[str, Any]:
         """Extract content from webpage (basic implementation)"""
@@ -175,24 +552,6 @@ class WebSearchMCPServer:
                 "status": "failed"
             }
 
-    async def _search_news(self, query: str, days_back: int) -> Dict[str, Any]:
-        """Search for news articles (placeholder implementation)"""
-        return {
-            "query": query,
-            "days_back": days_back,
-            "articles": [
-                {
-                    "title": f"News article about '{query}'",
-                    "url": "https://news.example.com/article1",
-                    "snippet": f"This is a placeholder news article about '{query}'. In a real implementation, this would fetch actual news from news APIs.",
-                    "source": "News Example",
-                    "published_date": "2024-01-15T10:00:00Z"
-                }
-            ],
-            "status": "placeholder_implementation",
-            "message": "This is a placeholder implementation. Integrate with news APIs for actual results."
-        }
-
     def setup_resources(self):
         """Setup MCP resources for web search data"""
         
@@ -202,13 +561,31 @@ class WebSearchMCPServer:
                 Resource(
                     uri="web://search",
                     name="Web Search",
-                    description="Access web search capabilities",
+                    description="Access web search capabilities via Serper.dev",
                     mimeType="application/json"
                 ),
                 Resource(
                     uri="web://news",
                     name="News Search",
-                    description="Access news search capabilities",
+                    description="Access news search capabilities via Serper.dev",
+                    mimeType="application/json"
+                ),
+                Resource(
+                    uri="web://images",
+                    name="Image Search",
+                    description="Access image search capabilities via Serper.dev",
+                    mimeType="application/json"
+                ),
+                Resource(
+                    uri="web://videos",
+                    name="Video Search",
+                    description="Access video search capabilities via Serper.dev",
+                    mimeType="application/json"
+                ),
+                Resource(
+                    uri="web://places",
+                    name="Places Search",
+                    description="Access places search capabilities via Serper.dev",
                     mimeType="application/json"
                 )
             ]
@@ -219,17 +596,51 @@ class WebSearchMCPServer:
                 if uri == "web://search":
                     return json.dumps({
                         "resource": "search",
-                        "description": "Web search functionality",
+                        "description": "Web search functionality via Serper.dev Google Search API",
                         "available_operations": ["web_search", "get_webpage_content"],
-                        "status": "placeholder_implementation"
+                        "api_provider": "Serper.dev",
+                        "search_engine": "Google",
+                        "status": "active" if self.serper_api_key else "inactive - API key required"
                     })
                 
                 elif uri == "web://news":
                     return json.dumps({
                         "resource": "news",
-                        "description": "News search functionality",
+                        "description": "News search functionality via Serper.dev",
                         "available_operations": ["search_news"],
-                        "status": "placeholder_implementation"
+                        "api_provider": "Serper.dev",
+                        "search_engine": "Google News",
+                        "status": "active" if self.serper_api_key else "inactive - API key required"
+                    })
+                
+                elif uri == "web://images":
+                    return json.dumps({
+                        "resource": "images",
+                        "description": "Image search functionality via Serper.dev",
+                        "available_operations": ["search_images"],
+                        "api_provider": "Serper.dev",
+                        "search_engine": "Google Images",
+                        "status": "active" if self.serper_api_key else "inactive - API key required"
+                    })
+                
+                elif uri == "web://videos":
+                    return json.dumps({
+                        "resource": "videos",
+                        "description": "Video search functionality via Serper.dev",
+                        "available_operations": ["search_videos"],
+                        "api_provider": "Serper.dev",
+                        "search_engine": "Google Videos",
+                        "status": "active" if self.serper_api_key else "inactive - API key required"
+                    })
+                
+                elif uri == "web://places":
+                    return json.dumps({
+                        "resource": "places",
+                        "description": "Places search functionality via Serper.dev",
+                        "available_operations": ["search_places"],
+                        "api_provider": "Serper.dev",
+                        "search_engine": "Google Places",
+                        "status": "active" if self.serper_api_key else "inactive - API key required"
                     })
                 
                 else:

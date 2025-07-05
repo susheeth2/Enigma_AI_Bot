@@ -15,6 +15,9 @@ class Config:
     LLM_MODEL_PATH = os.getenv('LLM_MODEL_PATH', '/root/.cache/huggingface/')
     OPENAI_API_KEY = os.getenv('OPENAI_API_KEY')
     
+    # Search API configuration
+    SERPER_API_KEY = os.getenv('SERPER_API_KEY')
+    
     @staticmethod
     def ensure_directories():
         """Create necessary directories"""

@@ -98,10 +98,67 @@ class MCPService:
                 'error': str(e)
             }
 
-    def web_search(self, query: str, num_results: int = 5) -> Dict[str, Any]:
-        """Perform web search using MCP web search server"""
+    def web_search(self, query: str, num_results: int = 5, search_type: str = "web") -> Dict[str, Any]:
+        """Perform web search using MCP web search server with Serper.dev"""
         try:
-            result = self._run_async(web_search_mcp(query, num_results))
+            # Map search types to MCP tools
+            tool_mapping = {
+                "web": "web_search",
+                "news": "search_news", 
+                "images": "search_images",
+                "videos": "search_videos",
+                "places": "search_places"
+            }
+            
+            tool_name = tool_mapping.get(search_type, "web_search")
+            
+            # Prepare arguments based on search type
+            if search_type == "places":
+                arguments = {
+                    "query": query,
+                    "num_results": num_results,
+                    "location": "United States"  # Default location
+                }
+            else:
+                arguments = {
+                    "query": query,
+                    "num_results": num_results
+                }
+            
+            result = self._run_async(
+                self.client.call_tool('web_search', tool_name, arguments)
+            )
+            
+            # Parse JSON result if it's a string
+            if isinstance(result, str):
+                try:
+                    result = json.loads(result)
+                except json.JSONDecodeError:
+                    pass
+            
+            return {
+                'success': True,
+                'results': result,
+                'search_type': search_type
+            }
+        except Exception as e:
+            return {
+                'success': False,
+                'error': str(e),
+                'search_type': search_type
+            }
+
+    def search_news(self, query: str, num_results: int = 5, time_range: str = "qdr:d") -> Dict[str, Any]:
+        """Search news using MCP web search server"""
+        try:
+            result = self._run_async(
+                self.client.call_tool('web_search', 'search_news', {
+                    'query': query,
+                    'num_results': num_results,
+                    'time_range': time_range
+                })
+            )
+            
             # Parse JSON result if it's a string
             if isinstance(result, str):
                 try:
@@ -112,6 +169,119 @@ class MCPService:
             return {
                 'success': True,
                 'results': result
+            }
+        except Exception as e:
+            return {
+                'success': False,
+                'error': str(e)
+            }
+
+    def search_images(self, query: str, num_results: int = 5, safe_search: bool = True) -> Dict[str, Any]:
+        """Search images using MCP web search server"""
+        try:
+            result = self._run_async(
+                self.client.call_tool('web_search', 'search_images', {
+                    'query': query,
+                    'num_results': num_results,
+                    'safe_search': safe_search
+                })
+            )
+            
+            # Parse JSON result if it's a string
+            if isinstance(result, str):
+                try:
+                    result = json.loads(result)
+                except json.JSONDecodeError:
+                    pass
+            
+            return {
+                'success': True,
+                'results': result
+            }
+        except Exception as e:
+            return {
+                'success': False,
+                'error': str(e)
+            }
+
+    def search_videos(self, query: str, num_results: int = 5) -> Dict[str, Any]:
+        """Search videos using MCP web search server"""
+        try:
+            result = self._run_async(
+                self.client.call_tool('web_search', 'search_videos', {
+                    'query': query,
+                    'num_results': num_results
+                })
+            )
+            
+            # Parse JSON result if it's a string
+            if isinstance(result, str):
+                try:
+                    result = json.loads(result)
+                except json.JSONDecodeError:
+                    pass
+            
+            return {
+                'success': True,
+                'results': result
+            }
+        except Exception as e:
+            return {
+                'success': False,
+                'error': str(e)
+            }
+
+    def search_places(self, query: str, location: str = None, num_results: int = 5) -> Dict[str, Any]:
+        """Search places using MCP web search server"""
+        try:
+            arguments = {
+                'query': query,
+                'num_results': num_results
+            }
+            if location:
+                arguments['location'] = location
+                
+            result = self._run_async(
+                self.client.call_tool('web_search', 'search_places', arguments)
+            )
+            
+            # Parse JSON result if it's a string
+            if isinstance(result, str):
+                try:
+                    result = json.loads(result)
+                except json.JSONDecodeError:
+                    pass
+            
+            return {
+                'success': True,
+                'results': result
+            }
+        except Exception as e:
+            return {
+                'success': False,
+                'error': str(e)
+            }
+
+    def get_webpage_content(self, url: str, max_length: int = 5000) -> Dict[str, Any]:
+        """Extract webpage content using MCP web search server"""
+        try:
+            result = self._run_async(
+                self.client.call_tool('web_search', 'get_webpage_content', {
+                    'url': url,
+                    'max_length': max_length
+                })
+            )
+            
+            # Parse JSON result if it's a string
+            if isinstance(result, str):
+                try:
+                    result = json.loads(result)
+                except json.JSONDecodeError:
+                    pass
+            
+            return {
+                'success': True,
+                'result': result
             }
         except Exception as e:
             return {

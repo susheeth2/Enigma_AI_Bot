@@ -1,6 +1,6 @@
-# Enigma AI Bot with MCP Integration
+# Enigma AI Bot with MCP Integration & Serper.dev Web Search
 
-A sophisticated AI chatbot application built with Flask, featuring Model Context Protocol (MCP) integration for enhanced tool calling and external service integration.
+A sophisticated AI chatbot application built with Flask, featuring Model Context Protocol (MCP) integration and real-time web search capabilities powered by Serper.dev.
 
 ## Features
 
@@ -8,7 +8,7 @@ A sophisticated AI chatbot application built with Flask, featuring Model Context
 - **Multi-modal Chat Interface**: Text-based conversations with streaming responses
 - **Image Generation**: AI-powered image creation from text prompts
 - **Document Processing**: Upload and analyze DOCX files with vector search
-- **Web Search**: Search the web for real-time information (placeholder implementation)
+- **Real-time Web Search**: Powered by Serper.dev Google Search API
 - **User Authentication**: Secure login and registration system
 - **Session Management**: Persistent chat sessions with history
 
@@ -17,6 +17,14 @@ A sophisticated AI chatbot application built with Flask, featuring Model Context
 - **Modular Architecture**: Separate MCP servers for different functionalities
 - **Tool Calling**: Dynamic tool discovery and execution
 - **Resource Management**: Structured access to external data sources
+
+### Web Search Capabilities (Serper.dev)
+- **Web Search**: General Google search results
+- **News Search**: Recent news articles with time filtering
+- **Image Search**: Google Images with safe search options
+- **Video Search**: Video content from various platforms
+- **Places Search**: Local businesses and location data
+- **Webpage Content**: Extract and analyze webpage content
 
 ## Architecture
 
@@ -31,7 +39,7 @@ A sophisticated AI chatbot application built with Flask, featuring Model Context
   - `database_server.py`: Database operations
   - `vector_server.py`: Vector store operations
   - `image_server.py`: Image generation and processing
-  - `web_search_server.py`: Web search functionality
+  - `web_search_server.py`: Web search functionality with Serper.dev
 
 - **MCP Client**: Unified interface for server communication
 - **Enhanced Services**: MCP-integrated versions of core services
@@ -70,16 +78,26 @@ GRADIO_CLIENT_URL=your_gradio_url
 MILVUS_HOST=localhost
 MILVUS_PORT=19530
 
-# Search API (optional)
-SEARCH_API_KEY=your_search_api_key
+# Search API - Serper.dev (Required for web search)
+SERPER_API_KEY=your_serper_api_key
+
+# Application Settings
+SECRET_KEY=your-secret-key-here
+DEBUG=true
 ```
 
-4. **Initialize the database**
+4. **Get Serper.dev API Key**
+   - Visit [Serper.dev](https://serper.dev)
+   - Sign up for an account
+   - Get your API key from the dashboard
+   - Add it to your `.env` file as `SERPER_API_KEY`
+
+5. **Initialize the database**
 ```bash
 mysql -u root -p < database_setup.sql
 ```
 
-5. **Download NLTK data**
+6. **Download NLTK data**
 ```python
 import nltk
 nltk.download('punkt')
@@ -116,7 +134,7 @@ python mcp_startup.py stop
 python mcp_startup.py status
 
 # Start specific server
-python mcp_startup.py start --server database
+python mcp_startup.py start --server web_search
 
 # Restart all servers
 python mcp_startup.py restart
@@ -124,11 +142,16 @@ python mcp_startup.py restart
 
 ### API Endpoints
 
-#### Enhanced Endpoints (with MCP)
+#### Enhanced Endpoints (with MCP & Serper.dev)
 - `POST /enhanced/send_message` - Send chat message with tool calling
 - `POST /enhanced/upload_file` - Upload file with MCP processing
 - `POST /enhanced/generate_image` - Generate image using MCP
-- `POST /enhanced/web_search` - Web search using MCP
+- `POST /enhanced/web_search` - Web search using Serper.dev
+- `POST /enhanced/search_news` - News search using Serper.dev
+- `POST /enhanced/search_images` - Image search using Serper.dev
+- `POST /enhanced/search_videos` - Video search using Serper.dev
+- `POST /enhanced/search_places` - Places search using Serper.dev
+- `POST /enhanced/get_webpage_content` - Extract webpage content
 
 #### MCP Management
 - `GET /mcp/status` - Get MCP server status
@@ -136,11 +159,59 @@ python mcp_startup.py restart
 - `POST /mcp/test_tool` - Test MCP tools
 - `GET /mcp/health` - Health check
 
-#### Traditional Endpoints
+#### Traditional Endpoints (Fallback)
 - `POST /send_message` - Basic chat functionality
 - `POST /upload_file` - File upload
 - `POST /generate` - Image generation
 - `GET /chat` - Chat interface
+
+## Web Search Integration
+
+### Serper.dev Features
+
+The application integrates with Serper.dev to provide comprehensive web search capabilities:
+
+1. **Web Search**: General Google search results with organic results, knowledge graphs, and answer boxes
+2. **News Search**: Recent news articles with time filtering (hour, day, week, month, year)
+3. **Image Search**: Google Images with safe search and filtering options
+4. **Video Search**: Video content from various platforms
+5. **Places Search**: Local businesses and location-based results
+6. **Webpage Content**: Extract and analyze content from any webpage
+
+### Search Parameters
+
+- **Query**: Search terms
+- **Number of Results**: 1-100 results per search
+- **Country/Location**: Localized results
+- **Language**: Search in specific languages
+- **Time Range**: For news searches (recent, day, week, month, year)
+- **Safe Search**: Enable/disable safe search for images
+
+### Example Usage
+
+```javascript
+// Web search
+fetch('/enhanced/web_search', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({
+        query: 'artificial intelligence trends 2024',
+        num_results: 10,
+        search_type: 'web'
+    })
+});
+
+// News search
+fetch('/enhanced/search_news', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({
+        query: 'AI breakthrough',
+        num_results: 5,
+        time_range: 'qdr:d'  // Last day
+    })
+});
+```
 
 ## MCP Integration Details
 
@@ -154,7 +225,7 @@ Each MCP server exposes:
 1. **Database Tools**: Message storage, retrieval, user management
 2. **Vector Tools**: Document processing, similarity search
 3. **Image Tools**: Generation, analysis, processing
-4. **Search Tools**: Web search, content extraction
+4. **Search Tools**: Web search, news, images, videos, places
 
 ### Client Integration
 The MCP client provides:
@@ -165,51 +236,57 @@ The MCP client provides:
 
 ## Development
 
-### Adding New MCP Tools
+### Adding New Search Features
 
-1. **Create a new tool in the appropriate server**:
+1. **Add new tool to web_search_server.py**:
 ```python
 Tool(
-    name="your_tool_name",
-    description="Tool description",
+    name="search_scholarly",
+    description="Search academic papers and scholarly articles",
     inputSchema={
         "type": "object",
         "properties": {
-            "param": {"type": "string", "description": "Parameter description"}
+            "query": {"type": "string", "description": "Academic search query"},
+            "year_range": {"type": "string", "description": "Publication year range"}
         },
-        "required": ["param"]
+        "required": ["query"]
     }
 )
 ```
 
-2. **Implement the tool handler**:
+2. **Implement the search method**:
 ```python
-@server.call_tool()
-async def handle_call_tool(name: str, arguments: Dict[str, Any]) -> List[TextContent]:
-    if name == "your_tool_name":
-        # Tool implementation
-        result = your_function(arguments["param"])
-        return [TextContent(type="text", text=str(result))]
+async def _search_scholarly(self, query: str, year_range: str = None) -> Dict[str, Any]:
+    # Implementation using Serper.dev or other academic search APIs
+    pass
 ```
 
-3. **Update the enhanced LLM service** to recognize when to use the tool.
+3. **Add to MCP service** and **create API endpoint**.
 
 ### Project Structure
 ```
 ├── app.py                 # Main application
 ├── mcp/                   # MCP integration
 │   ├── servers/          # MCP servers
+│   │   └── web_search_server.py  # Serper.dev integration
 │   └── client.py         # MCP client
 ├── services/             # Core services
 │   ├── enhanced_*        # MCP-enhanced services
 │   └── mcp_service.py    # MCP service wrapper
 ├── routes/               # Flask routes
+│   └── enhanced_api_routes.py  # Enhanced API with search
 ├── utils/                # Utilities
 ├── static/               # Frontend assets
 └── templates/            # HTML templates
 ```
 
 ## Troubleshooting
+
+### Serper.dev API Issues
+1. **Check API key**: Ensure `SERPER_API_KEY` is set correctly
+2. **Rate limits**: Serper.dev has rate limits - check your usage
+3. **API status**: Check Serper.dev status page for service issues
+4. **Request format**: Ensure requests match API specifications
 
 ### MCP Server Issues
 1. Check server status: `python mcp_startup.py status`
@@ -227,6 +304,15 @@ async def handle_call_tool(name: str, arguments: Dict[str, Any]) -> List[TextCon
 2. Check Milvus connection settings
 3. Verify embedding model is available
 
+## API Rate Limits
+
+### Serper.dev Limits
+- **Free Plan**: 2,500 searches/month
+- **Pro Plan**: 10,000 searches/month
+- **Business Plan**: 100,000 searches/month
+
+Monitor your usage through the Serper.dev dashboard.
+
 ## Contributing
 
 1. Fork the repository
@@ -238,3 +324,10 @@ async def handle_call_tool(name: str, arguments: Dict[str, Any]) -> List[TextCon
 ## License
 
 This project is licensed under the MIT License.
+
+## Support
+
+For issues related to:
+- **Serper.dev API**: Check [Serper.dev documentation](https://serper.dev/docs)
+- **MCP Integration**: See MCP documentation
+- **Application Issues**: Create an issue in this repository

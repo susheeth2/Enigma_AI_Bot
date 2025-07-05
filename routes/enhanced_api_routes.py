@@ -1,5 +1,5 @@
 """
-Enhanced API routes with MCP integration
+Enhanced API routes with MCP integration and Serper.dev web search
 """
 import uuid
 from flask import Blueprint, request, jsonify, session, Response
@@ -181,7 +181,103 @@ def enhanced_generate_image():
 
 @enhanced_api_bp.route('/enhanced/web_search', methods=['POST'])
 def enhanced_web_search():
-    """Enhanced web search using MCP"""
+    """Enhanced web search using MCP with Serper.dev"""
+    if 'user_id' not in session:
+        return jsonify({'error': 'Not authenticated'}), 401
+
+    try:
+        data = request.get_json()
+        query = data.get('query', '').strip()
+        num_results = data.get('num_results', 5)
+        search_type = data.get('search_type', 'web')  # web, news, images, videos, places
+
+        if not query:
+            return jsonify({'error': 'Query is required'}), 400
+
+        # Use MCP service for web search with Serper.dev
+        result = mcp_service.web_search(query, num_results, search_type)
+        
+        return jsonify({
+            'success': result['success'],
+            'results': result.get('results', []),
+            'query': query,
+            'search_type': search_type,
+            'mcp_enabled': True,
+            'provider': 'Serper.dev',
+            'error': result.get('error')
+        })
+
+    except Exception as e:
+        print(f"[enhanced_web_search] Error: {e}")
+        return jsonify({'error': str(e)}), 500
+
+@enhanced_api_bp.route('/enhanced/search_news', methods=['POST'])
+def enhanced_search_news():
+    """Enhanced news search using MCP with Serper.dev"""
+    if 'user_id' not in session:
+        return jsonify({'error': 'Not authenticated'}), 401
+
+    try:
+        data = request.get_json()
+        query = data.get('query', '').strip()
+        num_results = data.get('num_results', 5)
+        time_range = data.get('time_range', 'qdr:d')  # qdr:h, qdr:d, qdr:w, qdr:m, qdr:y
+
+        if not query:
+            return jsonify({'error': 'Query is required'}), 400
+
+        # Use MCP service for news search
+        result = mcp_service.search_news(query, num_results, time_range)
+        
+        return jsonify({
+            'success': result['success'],
+            'results': result.get('results', []),
+            'query': query,
+            'time_range': time_range,
+            'mcp_enabled': True,
+            'provider': 'Serper.dev',
+            'error': result.get('error')
+        })
+
+    except Exception as e:
+        print(f"[enhanced_search_news] Error: {e}")
+        return jsonify({'error': str(e)}), 500
+
+@enhanced_api_bp.route('/enhanced/search_images', methods=['POST'])
+def enhanced_search_images():
+    """Enhanced image search using MCP with Serper.dev"""
+    if 'user_id' not in session:
+        return jsonify({'error': 'Not authenticated'}), 401
+
+    try:
+        data = request.get_json()
+        query = data.get('query', '').strip()
+        num_results = data.get('num_results', 5)
+        safe_search = data.get('safe_search', True)
+
+        if not query:
+            return jsonify({'error': 'Query is required'}), 400
+
+        # Use MCP service for image search
+        result = mcp_service.search_images(query, num_results, safe_search)
+        
+        return jsonify({
+            'success': result['success'],
+            'results': result.get('results', []),
+            'query': query,
+            'safe_search': safe_search,
+            'mcp_enabled': True,
+            'provider': 'Serper.dev',
+            'error': result.get('error')
+        })
+
+    except Exception as e:
+        print(f"[enhanced_search_images] Error: {e}")
+        return jsonify({'error': str(e)}), 500
+
+@enhanced_api_bp.route('/enhanced/search_videos', methods=['POST'])
+def enhanced_search_videos():
+    """Enhanced video search using MCP with Serper.dev"""
     if 'user_id' not in session:
         return jsonify({'error': 'Not authenticated'}), 401
 
@@ -193,19 +289,81 @@ def enhanced_web_search():
         if not query:
             return jsonify({'error': 'Query is required'}), 400
 
-        # Use MCP service for web search
-        result = mcp_service.web_search(query, num_results)
+        # Use MCP service for video search
+        result = mcp_service.search_videos(query, num_results)
         
         return jsonify({
             'success': result['success'],
             'results': result.get('results', []),
             'query': query,
             'mcp_enabled': True,
+            'provider': 'Serper.dev',
             'error': result.get('error')
         })
 
     except Exception as e:
-        print(f"[enhanced_web_search] Error: {e}")
+        print(f"[enhanced_search_videos] Error: {e}")
+        return jsonify({'error': str(e)}), 500
+
+@enhanced_api_bp.route('/enhanced/search_places', methods=['POST'])
+def enhanced_search_places():
+    """Enhanced places search using MCP with Serper.dev"""
+    if 'user_id' not in session:
+        return jsonify({'error': 'Not authenticated'}), 401
+
+    try:
+        data = request.get_json()
+        query = data.get('query', '').strip()
+        location = data.get('location')
+        num_results = data.get('num_results', 5)
+
+        if not query:
+            return jsonify({'error': 'Query is required'}), 400
+
+        # Use MCP service for places search
+        result = mcp_service.search_places(query, location, num_results)
+        
+        return jsonify({
+            'success': result['success'],
+            'results': result.get('results', []),
+            'query': query,
+            'location': location,
+            'mcp_enabled': True,
+            'provider': 'Serper.dev',
+            'error': result.get('error')
+        })
+
+    except Exception as e:
+        print(f"[enhanced_search_places] Error: {e}")
+        return jsonify({'error': str(e)}), 500
+
+@enhanced_api_bp.route('/enhanced/get_webpage_content', methods=['POST'])
+def enhanced_get_webpage_content():
+    """Enhanced webpage content extraction using MCP"""
+    if 'user_id' not in session:
+        return jsonify({'error': 'Not authenticated'}), 401
+
+    try:
+        data = request.get_json()
+        url = data.get('url', '').strip()
+        max_length = data.get('max_length', 5000)
+
+        if not url:
+            return jsonify({'error': 'URL is required'}), 400
+
+        # Use MCP service for webpage content extraction
+        result = mcp_service.get_webpage_content(url, max_length)
+        
+        return jsonify({
+            'success': result['success'],
+            'content': result.get('result', {}),
+            'url': url,
+            'mcp_enabled': True,
+            'error': result.get('error')
+        })
+
+    except Exception as e:
+        print(f"[enhanced_get_webpage_content] Error: {e}")
         return jsonify({'error': str(e)}), 500
 
 # Keep original routes as fallback
