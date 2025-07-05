@@ -1,0 +1,24 @@
+[project]
+name = "enigma-ai-bot"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+    "asyncio>=3.4.3",
+    "flask>=3.1.1",
+    "langchain>=0.3.26",
+    "langchain-huggingface>=0.3.0",
+    "mcp>=1.10.1",
+    "nltk>=3.9.1",
+    "nomic>=3.5.3",
+    "openai>=1.93.0",
+    "pillow>=11.3.0",
+    "pymilvus>=2.5.12",
+    "pymysql>=1.1.1",
+    "python-docx>=1.2.0",
+    "python-dotenv>=1.1.1",
+    "requests>=2.32.4",
+    "uuid>=1.30",
+    "werkzeug>=3.1.3",
+]

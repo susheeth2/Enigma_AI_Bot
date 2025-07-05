@@ -4,7 +4,7 @@ MCP Service for integrating MCP functionality into the Flask application
 import asyncio
 import json
 from typing import Any, Dict, List, Optional
-from mcp.client import (
+from mcp.mcp_client import (
     mcp_client,
     save_message_mcp,
     search_documents_mcp,

@@ -46,7 +46,11 @@ def stream_chat_response(user_message, user_id, session_id):
 
         # Get chat history for context
         history = db_manager.get_session_messages(user_id, session_id)
-        memory_context = "\n".join([f"{m['role'].capitalize()}: {m['message']}" for m in history[-10:]])
+        memory_context = "\n".join([
+            f"{getattr(m, 'role', str(m)).capitalize()}: {getattr(m, 'message', str(m))}" if not isinstance(m, dict)
+            else f"{m.get('role', str(m)).capitalize()}: {m.get('message', str(m))}"
+            for m in history[-10:]
+        ])
 
         # Get relevant documents from vector store
         vector_context = ""
@@ -111,6 +115,9 @@ def upload_file():
     
     try:
         file = request.files.get('file')
+        if file is None:
+            return jsonify({'error': 'No file uploaded'}), 400
+
         result = file_service.process_uploaded_file(
             file, 
             session['session_id'], 

@@ -2,10 +2,9 @@
 MCP Client for integrating with MCP servers
 """
 import asyncio
-import json
 import subprocess
 import sys
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Dict, List, Optional
 from mcp.client.session import ClientSession
 from mcp.client.stdio import stdio_client
 
@@ -187,30 +186,32 @@ mcp_client = MCPClient()
 # Convenience functions for common operations
 async def save_message_mcp(user_id: int, session_id: str, role: str, message: str) -> str:
     """Save message using MCP database server"""
-    return await mcp_client.call_tool('database', 'save_message', {
+    result = await mcp_client.call_tool('database', 'save_message', {
         'user_id': user_id,
         'session_id': session_id,
         'role': role,
         'message': message
     })
-
+    return result if result is not None else ""
 async def search_documents_mcp(session_id: str, query: str, top_k: int = 5) -> str:
     """Search documents using MCP vector server"""
-    return await mcp_client.call_tool('vector', 'search_documents', {
+    result = await mcp_client.call_tool('vector', 'search_documents', {
         'session_id': session_id,
         'query': query,
         'top_k': top_k
     })
+    return result if result is not None else ""
 
 async def generate_image_mcp(prompt: str) -> str:
     """Generate image using MCP image server"""
-    return await mcp_client.call_tool('image', 'generate_image', {
+    result = await mcp_client.call_tool('image', 'generate_image', {
         'prompt': prompt
     })
-
+    return result if result is not None else ""
 async def web_search_mcp(query: str, num_results: int = 5) -> str:
     """Perform web search using MCP web search server"""
-    return await mcp_client.call_tool('web_search', 'web_search', {
+    result = await mcp_client.call_tool('web_search', 'web_search', {
         'query': query,
         'num_results': num_results
     })
+    return result if result is not None else ""
