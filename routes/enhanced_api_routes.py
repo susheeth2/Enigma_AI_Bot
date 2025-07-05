@@ -1,5 +1,5 @@
 """
-Enhanced API routes with MCP integration and Serper.dev web search
+Enhanced API routes with MCP integration, document chat, RAG, and web search
 """
 import uuid
 from flask import Blueprint, request, jsonify, session, Response
@@ -18,7 +18,7 @@ db_manager = DatabaseManager()
 
 @enhanced_api_bp.route('/enhanced/send_message', methods=['POST'])
 def enhanced_send_message():
-    """Enhanced message sending with MCP integration"""
+    """Enhanced message sending with mode-specific routing"""
     if 'user_id' not in session:
         return jsonify({'error': 'Not authenticated'}), 401
 
@@ -26,17 +26,27 @@ def enhanced_send_message():
         data = request.get_json()
         user_message = data.get('message', '').strip()
         stream = data.get('stream', False)
+        mode = data.get('mode', 'chat')
+        max_tokens = data.get('max_tokens', 50000)
 
         if stream:
             return Response(
-                enhanced_stream_chat_response(user_message, session['user_id'], session['session_id']),
+                enhanced_stream_chat_response(
+                    user_message, 
+                    session['user_id'], 
+                    session['session_id'],
+                    mode,
+                    max_tokens
+                ),
                 mimetype='text/stream'
             )
         else:
-            result = enhanced_chat_service.process_message(
+            result = enhanced_chat_service.process_message_with_mode(
                 user_message, 
                 session['user_id'], 
-                session['session_id']
+                session['session_id'],
+                mode,
+                max_tokens
             )
             return jsonify(result)
 
@@ -44,10 +54,10 @@ def enhanced_send_message():
         print(f"[enhanced_send_message] Error: {e}")
         return jsonify({'error': 'Failed to process message'}), 500
 
-def enhanced_stream_chat_response(user_message, user_id, session_id):
-    """Enhanced generator function for streaming chat responses with MCP"""
+def enhanced_stream_chat_response(user_message, user_id, session_id, mode='chat', max_tokens=50000):
+    """Enhanced generator function for streaming chat responses with mode support"""
     try:
-        # Save user message using MCP
+        # Save user message using MCP (with fallback)
         save_result = mcp_service.save_message(user_id, session_id, 'user', user_message)
         if not save_result['success']:
             # Fallback to direct database save
@@ -57,45 +67,55 @@ def enhanced_stream_chat_response(user_message, user_id, session_id):
         history = db_manager.get_session_messages(user_id, session_id)
         memory_context = "\n".join([f"{m['role'].capitalize()}: {m['message']}" for m in history[-10:]])
 
-        # Get relevant documents from vector store using MCP
+        # Mode-specific context building
         vector_context = ""
-        doc_search_result = mcp_service.search_documents(session_id, user_message)
-        if doc_search_result['success'] and doc_search_result['documents']:
-            vector_context = "\n".join([
-                doc.get('text', '') for doc in doc_search_result['documents']
-            ])
+        enhanced_context = memory_context
 
-        # Combine contexts
-        full_context = f"Chat History:\n{memory_context.strip()}\n\nRelevant Docs:\n{vector_context.strip()}"
-        
-        # Generate streaming response with MCP tool capabilities
+        if mode in ['document', 'rag']:
+            # Get relevant documents from vector store using MCP (with fallback)
+            try:
+                doc_search_result = mcp_service.search_documents(session_id, user_message)
+                if doc_search_result['success'] and doc_search_result['documents']:
+                    vector_context = "\n".join([
+                        doc.get('text', '') for doc in doc_search_result['documents']
+                    ])
+                    enhanced_context = f"Chat History:\n{memory_context}\n\nRelevant Documents:\n{vector_context}"
+                elif mode == 'document':
+                    enhanced_context = f"Chat History:\n{memory_context}\n\nNote: No documents found. Please upload a document first."
+            except Exception as e:
+                print(f"[Vector Search Error] {e}")
+                if mode == 'document':
+                    enhanced_context = f"Chat History:\n{memory_context}\n\nNote: Document search unavailable. Please upload a document."
+
+        # Generate streaming response with enhanced LLM service
         full_response = ""
         
-        # Check if tools are needed
+        # Check if tools are needed (web search, image generation, etc.)
         llm_service = enhanced_chat_service.llm_service
         tool_analysis = llm_service._analyze_tool_requirements(user_message)
         
         if tool_analysis['requires_tools']:
             # Execute tools first
             tool_results = llm_service._execute_tools(tool_analysis['tools'], user_message, user_id, session_id)
-            enhanced_context = llm_service._build_enhanced_context(full_context, tool_results)
+            enhanced_context = llm_service._build_enhanced_context(enhanced_context, tool_results)
             
             # Yield tool execution status
             yield f"data: {json.dumps({'tool_status': 'Tools executed', 'tools': [t['type'] for t in tool_analysis['tools']]})}\n\n"
-            
-            # Generate streaming response with enhanced context
-            for chunk in llm_service.generate_streaming_response(user_message, enhanced_context):
-                full_response += chunk
-                yield f"data: {json.dumps({'content': chunk})}\n\n"
-                time.sleep(0.05)
-        else:
-            # Generate normal streaming response
-            for chunk in llm_service.generate_streaming_response(user_message, full_context):
-                full_response += chunk
-                yield f"data: {json.dumps({'content': chunk})}\n\n"
-                time.sleep(0.05)
 
-        # Save complete AI response using MCP
+        # Generate streaming response with enhanced context and higher token limit
+        try:
+            for chunk in llm_service.generate_streaming_response(user_message, enhanced_context, max_tokens=max_tokens):
+                full_response += chunk
+                yield f"data: {json.dumps({'content': chunk})}\n\n"
+                time.sleep(0.02)  # Slightly faster streaming
+        except Exception as e:
+            print(f"[Streaming Error] {e}")
+            # Fallback to non-streaming response
+            fallback_response = llm_service.generate_response(user_message, enhanced_context, max_tokens=max_tokens)
+            full_response = fallback_response
+            yield f"data: {json.dumps({'content': fallback_response})}\n\n"
+
+        # Save complete AI response using MCP (with fallback)
         save_result = mcp_service.save_message(user_id, session_id, 'assistant', full_response)
         if not save_result['success']:
             # Fallback to direct database save
@@ -109,26 +129,27 @@ def enhanced_stream_chat_response(user_message, user_id, session_id):
 
 @enhanced_api_bp.route('/enhanced/upload_file', methods=['POST'])
 def enhanced_upload_file():
-    """Enhanced file upload with MCP integration"""
+    """Enhanced file upload with mode-aware processing"""
     if 'user_id' not in session:
         return jsonify({'error': 'Not authenticated'}), 401
     
     try:
         file = request.files.get('file')
         
-        # First process with original file service
+        if not file:
+            return jsonify({'error': 'No file uploaded'}), 400
+
+        # Process with original file service
         result = file_service.process_uploaded_file(
             file, 
             session['session_id'], 
             session['user_id']
         )
 
-        # If it's a document, also process with MCP
+        # Enhanced processing for documents
         if result['type'] == 'document':
-            # The file has already been processed and cleaned up by file_service
-            # We'll use the MCP service for future document operations
             result['mcp_enhanced'] = True
-            result['mcp_status'] = 'Document processed and ready for MCP operations'
+            result['mcp_status'] = 'Document processed and ready for chat operations'
 
         # Save document info to database
         if result['type'] == 'document':
@@ -158,7 +179,7 @@ def enhanced_generate_image():
         if not prompt:
             return jsonify({'error': 'Prompt is required'}), 400
 
-        # Use MCP service for image generation
+        # Use MCP service for image generation (with fallback)
         result = mcp_service.generate_image(prompt)
         
         if result['success']:
@@ -169,11 +190,31 @@ def enhanced_generate_image():
                 'mcp_enabled': True
             })
         else:
-            return jsonify({
-                'success': False,
-                'error': result['error'],
-                'mcp_enabled': True
-            }), 500
+            # Fallback to direct image service
+            try:
+                from services.image_service import ImageService
+                image_service = ImageService()
+                image_url = image_service.generate_image(prompt)
+                
+                if image_url:
+                    return jsonify({
+                        'success': True,
+                        'image_url': image_url,
+                        'prompt': prompt,
+                        'mcp_enabled': False
+                    })
+                else:
+                    return jsonify({
+                        'success': False,
+                        'error': 'Image generation failed',
+                        'mcp_enabled': False
+                    }), 500
+            except Exception as fallback_error:
+                return jsonify({
+                    'success': False,
+                    'error': f'Image generation failed: {str(fallback_error)}',
+                    'mcp_enabled': False
+                }), 500
 
     except Exception as e:
         print(f"[enhanced_generate_image] Error: {e}")
@@ -189,7 +230,7 @@ def enhanced_web_search():
         data = request.get_json()
         query = data.get('query', '').strip()
         num_results = data.get('num_results', 5)
-        search_type = data.get('search_type', 'web')  # web, news, images, videos, places
+        search_type = data.get('search_type', 'web')
 
         if not query:
             return jsonify({'error': 'Query is required'}), 400
@@ -199,7 +240,7 @@ def enhanced_web_search():
         
         return jsonify({
             'success': result['success'],
-            'results': result.get('results', []),
+            'results': result.get('results', {}),
             'query': query,
             'search_type': search_type,
             'mcp_enabled': True,
@@ -209,7 +250,11 @@ def enhanced_web_search():
 
     except Exception as e:
         print(f"[enhanced_web_search] Error: {e}")
-        return jsonify({'error': str(e)}), 500
+        return jsonify({
+            'success': False,
+            'error': str(e),
+            'mcp_enabled': False
+        }), 500
 
 @enhanced_api_bp.route('/enhanced/search_news', methods=['POST'])
 def enhanced_search_news():
@@ -221,17 +266,16 @@ def enhanced_search_news():
         data = request.get_json()
         query = data.get('query', '').strip()
         num_results = data.get('num_results', 5)
-        time_range = data.get('time_range', 'qdr:d')  # qdr:h, qdr:d, qdr:w, qdr:m, qdr:y
+        time_range = data.get('time_range', 'qdr:d')
 
         if not query:
             return jsonify({'error': 'Query is required'}), 400
 
-        # Use MCP service for news search
         result = mcp_service.search_news(query, num_results, time_range)
         
         return jsonify({
             'success': result['success'],
-            'results': result.get('results', []),
+            'results': result.get('results', {}),
             'query': query,
             'time_range': time_range,
             'mcp_enabled': True,
@@ -243,148 +287,98 @@ def enhanced_search_news():
         print(f"[enhanced_search_news] Error: {e}")
         return jsonify({'error': str(e)}), 500
 
-@enhanced_api_bp.route('/enhanced/search_images', methods=['POST'])
-def enhanced_search_images():
-    """Enhanced image search using MCP with Serper.dev"""
+@enhanced_api_bp.route('/enhanced/document_chat', methods=['POST'])
+def enhanced_document_chat():
+    """Dedicated endpoint for document chat"""
     if 'user_id' not in session:
         return jsonify({'error': 'Not authenticated'}), 401
 
     try:
         data = request.get_json()
         query = data.get('query', '').strip()
-        num_results = data.get('num_results', 5)
-        safe_search = data.get('safe_search', True)
+        session_id = session['session_id']
 
         if not query:
             return jsonify({'error': 'Query is required'}), 400
 
-        # Use MCP service for image search
-        result = mcp_service.search_images(query, num_results, safe_search)
+        # Search documents using MCP
+        doc_result = mcp_service.search_documents(session_id, query, top_k=5)
         
+        if not doc_result['success'] or not doc_result['documents']:
+            return jsonify({
+                'success': False,
+                'error': 'No documents found. Please upload a document first.',
+                'documents': []
+            })
+
+        # Format document results
+        formatted_docs = []
+        for doc in doc_result['documents']:
+            formatted_docs.append({
+                'text': doc.get('text', ''),
+                'filename': doc.get('filename', 'Unknown'),
+                'score': doc.get('score', 0)
+            })
+
         return jsonify({
-            'success': result['success'],
-            'results': result.get('results', []),
+            'success': True,
+            'documents': formatted_docs,
             'query': query,
-            'safe_search': safe_search,
-            'mcp_enabled': True,
-            'provider': 'Serper.dev',
-            'error': result.get('error')
+            'mcp_enabled': True
         })
 
     except Exception as e:
-        print(f"[enhanced_search_images] Error: {e}")
+        print(f"[enhanced_document_chat] Error: {e}")
         return jsonify({'error': str(e)}), 500
 
-@enhanced_api_bp.route('/enhanced/search_videos', methods=['POST'])
-def enhanced_search_videos():
-    """Enhanced video search using MCP with Serper.dev"""
+@enhanced_api_bp.route('/enhanced/rag_search', methods=['POST'])
+def enhanced_rag_search():
+    """Dedicated endpoint for RAG (Retrieval-Augmented Generation)"""
     if 'user_id' not in session:
         return jsonify({'error': 'Not authenticated'}), 401
 
     try:
         data = request.get_json()
         query = data.get('query', '').strip()
-        num_results = data.get('num_results', 5)
+        session_id = session['session_id']
+        max_tokens = data.get('max_tokens', 50000)
 
         if not query:
             return jsonify({'error': 'Query is required'}), 400
 
-        # Use MCP service for video search
-        result = mcp_service.search_videos(query, num_results)
+        # Perform RAG: Retrieve + Generate
+        # 1. Retrieve relevant documents
+        doc_result = mcp_service.search_documents(session_id, query, top_k=3)
         
+        # 2. Get chat history
+        history = db_manager.get_session_messages(session['user_id'], session_id)
+        memory_context = "\n".join([f"{m['role'].capitalize()}: {m['message']}" for m in history[-5:]])
+
+        # 3. Build enhanced context
+        context = f"Chat History:\n{memory_context}\n\n"
+        
+        if doc_result['success'] and doc_result['documents']:
+            context += "Relevant Information:\n"
+            for doc in doc_result['documents']:
+                context += f"- {doc.get('text', '')}\n"
+        else:
+            context += "Note: No specific documents found for this query.\n"
+
+        # 4. Generate response using enhanced LLM
+        llm_service = enhanced_chat_service.llm_service
+        response = llm_service.generate_response(query, context, max_tokens=max_tokens)
+
         return jsonify({
-            'success': result['success'],
-            'results': result.get('results', []),
+            'success': True,
+            'response': response,
+            'documents_found': len(doc_result.get('documents', [])),
             'query': query,
-            'mcp_enabled': True,
-            'provider': 'Serper.dev',
-            'error': result.get('error')
+            'mcp_enabled': True
         })
 
     except Exception as e:
-        print(f"[enhanced_search_videos] Error: {e}")
+        print(f"[enhanced_rag_search] Error: {e}")
         return jsonify({'error': str(e)}), 500
-
-@enhanced_api_bp.route('/enhanced/search_places', methods=['POST'])
-def enhanced_search_places():
-    """Enhanced places search using MCP with Serper.dev"""
-    if 'user_id' not in session:
-        return jsonify({'error': 'Not authenticated'}), 401
-
-    try:
-        data = request.get_json()
-        query = data.get('query', '').strip()
-        location = data.get('location')
-        num_results = data.get('num_results', 5)
-
-        if not query:
-            return jsonify({'error': 'Query is required'}), 400
-
-        # Use MCP service for places search
-        result = mcp_service.search_places(query, location, num_results)
-        
-        return jsonify({
-            'success': result['success'],
-            'results': result.get('results', []),
-            'query': query,
-            'location': location,
-            'mcp_enabled': True,
-            'provider': 'Serper.dev',
-            'error': result.get('error')
-        })
-
-    except Exception as e:
-        print(f"[enhanced_search_places] Error: {e}")
-        return jsonify({'error': str(e)}), 500
-
-@enhanced_api_bp.route('/enhanced/get_webpage_content', methods=['POST'])
-def enhanced_get_webpage_content():
-    """Enhanced webpage content extraction using MCP"""
-    if 'user_id' not in session:
-        return jsonify({'error': 'Not authenticated'}), 401
-
-    try:
-        data = request.get_json()
-        url = data.get('url', '').strip()
-        max_length = data.get('max_length', 5000)
-
-        if not url:
-            return jsonify({'error': 'URL is required'}), 400
-
-        # Use MCP service for webpage content extraction
-        result = mcp_service.get_webpage_content(url, max_length)
-        
-        return jsonify({
-            'success': result['success'],
-            'content': result.get('result', {}),
-            'url': url,
-            'mcp_enabled': True,
-            'error': result.get('error')
-        })
-
-    except Exception as e:
-        print(f"[enhanced_get_webpage_content] Error: {e}")
-        return jsonify({'error': str(e)}), 500
-
-# Keep original routes as fallback
-@enhanced_api_bp.route('/send_message', methods=['POST'])
-def fallback_send_message():
-    """Fallback to original send_message if enhanced version fails"""
-    # Import original function
-    from routes.api_routes import send_message
-    return send_message()
-
-@enhanced_api_bp.route('/upload_file', methods=['POST'])
-def fallback_upload_file():
-    """Fallback to original upload_file if enhanced version fails"""
-    from routes.api_routes import upload_file
-    return upload_file()
-
-@enhanced_api_bp.route('/web_search', methods=['POST'])
-def fallback_web_search():
-    """Fallback to original web_search if enhanced version fails"""
-    from routes.api_routes import web_search
-    return web_search()
 
 # Keep all other original routes
 @enhanced_api_bp.route('/get_chat_sessions')
@@ -415,3 +409,19 @@ def new_session():
         return jsonify({'error': 'Not authenticated'}), 401
     session['session_id'] = f"sess_{str(uuid.uuid4()).replace('-', '')}"
     return jsonify({'session_id': session['session_id']})
+
+# Fallback routes for compatibility
+@enhanced_api_bp.route('/send_message', methods=['POST'])
+def fallback_send_message():
+    """Fallback to enhanced send_message"""
+    return enhanced_send_message()
+
+@enhanced_api_bp.route('/upload_file', methods=['POST'])
+def fallback_upload_file():
+    """Fallback to enhanced upload_file"""
+    return enhanced_upload_file()
+
+@enhanced_api_bp.route('/web_search', methods=['POST'])
+def fallback_web_search():
+    """Fallback to enhanced web_search"""
+    return enhanced_web_search()

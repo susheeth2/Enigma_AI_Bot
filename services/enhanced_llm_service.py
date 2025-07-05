@@ -1,5 +1,5 @@
 """
-Enhanced LLM Service with MCP integration
+Enhanced LLM Service with improved token limits and better error handling
 """
 import os
 import json
@@ -14,7 +14,7 @@ from config.settings import Config
 from services.mcp_service import MCPService
 
 class EnhancedLLMService:
-    """Enhanced LLM Service with MCP tool calling capabilities"""
+    """Enhanced LLM Service with MCP tool calling capabilities and higher token limits"""
     
     def __init__(self):
         self.llm_server_url = Config.LLM_SERVER_URL
@@ -23,7 +23,7 @@ class EnhancedLLMService:
         self.openai_client = OpenAI(api_key=self.openai_api_key) if self.openai_api_key else None
         self.mcp_service = MCPService()
 
-    def generate_response_with_tools(self, user_message: str, context: str = "", user_id: int = None, session_id: str = None) -> str:
+    def generate_response_with_tools(self, user_message: str, context: str = "", user_id: int = None, session_id: str = None, max_tokens: int = 50000) -> str:
         """Generate response with MCP tool calling capabilities"""
         try:
             # First, determine if the user message requires tool usage
@@ -37,14 +37,14 @@ class EnhancedLLMService:
                 enhanced_context = self._build_enhanced_context(context, tool_results)
                 
                 # Generate response with enhanced context
-                return self.generate_response(user_message, enhanced_context)
+                return self.generate_response(user_message, enhanced_context, max_tokens=max_tokens)
             else:
                 # Generate normal response
-                return self.generate_response(user_message, context)
+                return self.generate_response(user_message, context, max_tokens=max_tokens)
                 
         except Exception as e:
             print(f"[Enhanced LLM Error] {e}")
-            return self.generate_response(user_message, context)
+            return self.generate_response(user_message, context, max_tokens=max_tokens)
 
     def _analyze_tool_requirements(self, user_message: str) -> dict:
         """Analyze if the user message requires tool usage"""
@@ -53,7 +53,7 @@ class EnhancedLLMService:
         required_tools = []
         
         # Image generation keywords
-        if any(keyword in message_lower for keyword in ['generate image', 'create image', 'draw', 'picture of', 'image of']):
+        if any(keyword in message_lower for keyword in ['generate image', 'create image', 'draw', 'picture of', 'image of', 'make an image']):
             required_tools.append({
                 'type': 'image_generation',
                 'server': 'image',
@@ -61,7 +61,7 @@ class EnhancedLLMService:
             })
         
         # Web search keywords
-        if any(keyword in message_lower for keyword in ['search for', 'find information', 'what is happening', 'latest news', 'current events']):
+        if any(keyword in message_lower for keyword in ['search for', 'find information', 'what is happening', 'latest news', 'current events', 'search web', 'google']):
             required_tools.append({
                 'type': 'web_search',
                 'server': 'web_search',
@@ -69,7 +69,7 @@ class EnhancedLLMService:
             })
         
         # Document search (if context suggests uploaded documents)
-        if any(keyword in message_lower for keyword in ['in the document', 'from the file', 'according to the document']):
+        if any(keyword in message_lower for keyword in ['in the document', 'from the file', 'according to the document', 'document says']):
             required_tools.append({
                 'type': 'document_search',
                 'server': 'vector',
@@ -96,12 +96,12 @@ class EnhancedLLMService:
                 elif tool['type'] == 'web_search':
                     # Extract search query from user message
                     query = self._extract_search_query(user_message)
-                    result = self.mcp_service.web_search(query)
+                    result = self.mcp_service.web_search(query, num_results=5)
                     results['web_search'] = result
                 
                 elif tool['type'] == 'document_search' and session_id:
                     # Search in uploaded documents
-                    result = self.mcp_service.search_documents(session_id, user_message)
+                    result = self.mcp_service.search_documents(session_id, user_message, top_k=5)
                     results['document_search'] = result
                     
             except Exception as e:
@@ -112,13 +112,13 @@ class EnhancedLLMService:
 
     def _extract_image_prompt(self, user_message: str) -> str:
         """Extract image generation prompt from user message"""
-        # Simple extraction - in a real implementation, you might use more sophisticated NLP
         message_lower = user_message.lower()
         
         # Remove common prefixes
-        for prefix in ['generate image of', 'create image of', 'draw', 'picture of', 'image of', 'generate']:
+        for prefix in ['generate image of', 'create image of', 'draw', 'picture of', 'image of', 'generate', 'make an image of']:
             if prefix in message_lower:
-                return user_message[message_lower.find(prefix) + len(prefix):].strip()
+                start_idx = message_lower.find(prefix) + len(prefix)
+                return user_message[start_idx:].strip()
         
         return user_message
 
@@ -127,9 +127,10 @@ class EnhancedLLMService:
         message_lower = user_message.lower()
         
         # Remove common prefixes
-        for prefix in ['search for', 'find information about', 'what is', 'tell me about']:
+        for prefix in ['search for', 'find information about', 'what is', 'tell me about', 'search web for', 'google']:
             if prefix in message_lower:
-                return user_message[message_lower.find(prefix) + len(prefix):].strip()
+                start_idx = message_lower.find(prefix) + len(prefix)
+                return user_message[start_idx:].strip()
         
         return user_message
 
@@ -151,8 +152,8 @@ class EnhancedLLMService:
         
         return enhanced_context
 
-    def generate_response(self, user_message: str, context: str = "", image_url: str = None, max_tokens: int = 10000, temperature: float = 0.1) -> str:
-        """Generate response using local LLM or OpenAI as fallback"""
+    def generate_response(self, user_message: str, context: str = "", image_url: str = None, max_tokens: int = 50000, temperature: float = 0.1) -> str:
+        """Generate response using local LLM or OpenAI as fallback with higher token limits"""
         try:
             local_response = self._call_local_llm(user_message, context, image_url, max_tokens, temperature)
             if local_response:
@@ -163,13 +164,15 @@ class EnhancedLLMService:
         try:
             if not self.openai_client:
                 raise ValueError("OpenAI client is not initialized")
-            return self._call_openai_gpt4o(user_message, context, image_url, max_tokens, temperature)
+            # Use a reasonable token limit for OpenAI (they have limits)
+            openai_max_tokens = min(max_tokens, 4000)
+            return self._call_openai_gpt4o(user_message, context, image_url, openai_max_tokens, temperature)
         except Exception as e:
             print(f"[OpenAI GPT-4o Error] {e}")
 
         return "I'm sorry, I'm currently unable to process your request. Please try again later."
 
-    def generate_streaming_response(self, user_message: str, context: str = "", max_tokens: int = 10000, temperature: float = 0.1):
+    def generate_streaming_response(self, user_message: str, context: str = "", max_tokens: int = 50000, temperature: float = 0.1):
         """Generate streaming response - yields chunks of text"""
         try:
             # Try local LLM streaming first
@@ -182,7 +185,8 @@ class EnhancedLLMService:
         try:
             # Fallback to OpenAI streaming
             if self.openai_client:
-                for chunk in self._call_openai_streaming(user_message, context, max_tokens, temperature):
+                openai_max_tokens = min(max_tokens, 4000)
+                for chunk in self._call_openai_streaming(user_message, context, openai_max_tokens, temperature):
                     yield chunk
                 return
         except Exception as e:
@@ -195,8 +199,8 @@ class EnhancedLLMService:
         for word in words:
             yield word + " "
 
-    def _call_local_llm_streaming(self, user_message: str, context: str = "", max_tokens: int = 10000, temperature: float = 0.1):
-        """Call local LLM server with streaming"""
+    def _call_local_llm_streaming(self, user_message: str, context: str = "", max_tokens: int = 50000, temperature: float = 0.1):
+        """Call local LLM server with streaming and higher token limits"""
         system_prompt = self._get_system_prompt()
         message_content = self._format_message_with_context(user_message, context)
 
@@ -214,7 +218,7 @@ class EnhancedLLMService:
         response = requests.post(
             self.llm_server_url, 
             json=payload, 
-            timeout=60,
+            timeout=120,  # Increased timeout for longer responses
             stream=True
         )
         
@@ -238,7 +242,7 @@ class EnhancedLLMService:
         else:
             raise Exception(f"HTTP {response.status_code} - {response.text}")
 
-    def _call_openai_streaming(self, user_message: str, context: str = "", max_tokens: int = 1000, temperature: float = 0.1):
+    def _call_openai_streaming(self, user_message: str, context: str = "", max_tokens: int = 4000, temperature: float = 0.1):
         """Call OpenAI with streaming"""
         system_prompt = self._get_system_prompt()
         message_content = self._format_message_with_context(user_message, context)
@@ -260,8 +264,8 @@ class EnhancedLLMService:
             if chunk.choices[0].delta.content is not None:
                 yield chunk.choices[0].delta.content
 
-    def _call_local_llm(self, user_message: str, context: str = "", image_url: str = None, max_tokens: int = 10000, temperature: float = 0.1):
-        """Call local LLM server"""
+    def _call_local_llm(self, user_message: str, context: str = "", image_url: str = None, max_tokens: int = 50000, temperature: float = 0.1):
+        """Call local LLM server with higher token limits"""
         system_prompt = self._get_system_prompt()
 
         if image_url:
@@ -282,14 +286,14 @@ class EnhancedLLMService:
             "temperature": temperature
         }
 
-        response = requests.post(self.llm_server_url, json=payload, timeout=60)
+        response = requests.post(self.llm_server_url, json=payload, timeout=120)
         if response.status_code == 200:
             data = response.json()
             return data.get("choices", [{}])[0].get("message", {}).get("content", "").strip()
         print(f"[Local LLM] HTTP {response.status_code} - {response.text}")
         return None
 
-    def _call_openai_gpt4o(self, user_message: str, context: str = "", image_url: str = None, max_tokens: int = 1000, temperature: float = 0.1):
+    def _call_openai_gpt4o(self, user_message: str, context: str = "", image_url: str = None, max_tokens: int = 4000, temperature: float = 0.1):
         """Call OpenAI GPT-4o"""
         system_prompt = self._get_system_prompt()
 
@@ -327,7 +331,9 @@ class EnhancedLLMService:
             "When users request specific actions like image generation or web searches, "
             "the system will automatically use the appropriate tools and provide you with the results. "
             "Use the provided context and tool results to give comprehensive and helpful responses. "
-            "If tool results are included in the context, incorporate them naturally into your response."
+            "If tool results are included in the context, incorporate them naturally into your response. "
+            "Always be helpful, accurate, and provide detailed responses when appropriate. "
+            "If you don't have enough information, clearly state what you need or suggest alternatives."
         )
 
     def _format_message_with_context(self, user_message: str, context: str = "") -> str:

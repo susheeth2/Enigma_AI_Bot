@@ -29,6 +29,13 @@
                 <i class="fas fa-cog"></i>
                 Settings
             </div>
+            <div class="nav-item" onclick="showMCPStatus()">
+                <i class="fas fa-server"></i>
+                MCP Status
+                <span class="status-indicator" id="mcpStatusIndicator">
+                    <i class="fas fa-circle"></i>
+                </span>
+            </div>
         </div>
 
         <div class="chat-sessions">
@@ -69,17 +76,21 @@
                     <i class="fas fa-bars"></i>
                 </button>
                 <h1>AI Assistant</h1>
+                <span class="mode-status" id="currentModeStatus">Normal Chat</span>
             </div>
             <div class="chat-actions">
                 <div class="mode-selector">
                     <button class="mode-btn active" data-mode="chat">
                         <i class="fas fa-comments"></i> Chat
                     </button>
+                    <button class="mode-btn" data-mode="document">
+                        <i class="fas fa-file-text"></i> Doc Chat
+                    </button>
+                    <button class="mode-btn" data-mode="rag">
+                        <i class="fas fa-brain"></i> RAG
+                    </button>
                     <button class="mode-btn" data-mode="image">
                         <i class="fas fa-image"></i> Image
-                    </button>
-                    <button class="mode-btn" data-mode="search">
-                        <i class="fas fa-search"></i> Search
                     </button>
                 </div>
                 <button class="btn btn-ghost btn-sm" onclick="clearChat()">
@@ -97,11 +108,12 @@
                 <div class="message-avatar">AI</div>
                 <div class="message-content">
                     <div class="message-text">
-                        Hello! I'm your AI assistant. You can:
-                        <br>• Ask me questions and get streaming responses
-                        <br>• Generate images by switching to Image mode
-                        <br>• Search the web using Search mode
-                        <br>• Upload documents for analysis
+                        Hello! I'm your AI assistant with enhanced capabilities:
+                        <br><br>🗨️ <strong>Chat Mode:</strong> Normal conversation with streaming responses
+                        <br>📄 <strong>Document Chat:</strong> Upload and chat with your documents
+                        <br>🧠 <strong>RAG Mode:</strong> Retrieval-Augmented Generation for enhanced responses
+                        <br>🎨 <strong>Image Mode:</strong> Generate images from text descriptions
+                        <br>🔍 <strong>Web Search:</strong> Search the web for real-time information
                         <br><br>How can I help you today?
                     </div>
                     <div class="message-time">Just now</div>
@@ -119,6 +131,13 @@
         </div>
 
         <div class="chat-input">
+            <!-- Document Upload Area (hidden by default) -->
+            <div class="document-upload-area" id="documentUploadArea" style="display: none;">
+                <i class="fas fa-cloud-upload-alt" style="font-size: 2rem; color: var(--text-secondary); margin-bottom: 0.5rem;"></i>
+                <p>Drop your document here or click to upload</p>
+                <p style="font-size: 0.8rem; color: var(--text-secondary);">Supports: DOCX, PDF, TXT files</p>
+            </div>
+
             <div class="input-container">
                 <textarea 
                     id="messageInput" 
@@ -128,11 +147,14 @@
                 ></textarea>
                 <div class="input-actions">
                     <div class="file-upload">
-                        <input type="file" id="fileInput" accept=".docx,.jpg,.jpeg,.png,.gif">
+                        <input type="file" id="fileInput" accept=".docx,.pdf,.txt,.jpg,.jpeg,.png,.gif">
                         <button class="action-btn file-btn" onclick="document.getElementById('fileInput').click()" title="Upload File">
                             <i class="fas fa-paperclip"></i>
                         </button>
                     </div>
+                    <button class="action-btn search-btn" id="webSearchBtn" onclick="toggleWebSearch()" title="Web Search">
+                        <i class="fas fa-search"></i>
+                    </button>
                     <button class="action-btn send-btn" id="sendBtn" title="Send Message">
                         <i class="fas fa-paper-plane"></i>
                     </button>
@@ -191,26 +213,6 @@
         </div>
         <div class="modal-body">
             <div class="setting-group">
-                <label class="setting-label">Theme</label>
-                <div class="setting-description">Choose your preferred theme</div>
-                <select class="form-input" id="themeSelect">
-                    <option value="light">Light</option>
-                    <option value="dark">Dark</option>
-                    <option value="auto">Auto</option>
-                </select>
-            </div>
-            
-            <div class="setting-group">
-                <label class="setting-label">Font Size</label>
-                <div class="setting-description">Adjust the chat font size</div>
-                <select class="form-input" id="fontSizeSelect">
-                    <option value="small">Small</option>
-                    <option value="medium" selected>Medium</option>
-                    <option value="large">Large</option>
-                </select>
-            </div>
-            
-            <div class="setting-group">
                 <label class="setting-label">Auto-scroll</label>
                 <div class="setting-description">Automatically scroll to new messages</div>
                 <label style="display: flex; align-items: center; gap: 0.5rem; cursor: pointer;">
@@ -235,6 +237,32 @@
                     <input type="checkbox" id="streamingCheck" checked>
                     <span>Enable streaming responses</span>
                 </label>
+            </div>
+
+            <div class="setting-group">
+                <label class="setting-label">Max Token Limit</label>
+                <div class="setting-description">Maximum tokens for AI responses (1000-50000)</div>
+                <input type="number" class="form-input" id="maxTokensInput" value="50000" min="1000" max="50000">
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- MCP Status Modal -->
+<div class="modal" id="mcpStatusModal">
+    <div class="modal-content">
+        <div class="modal-header">
+            <h3>MCP Server Status</h3>
+            <button class="close-btn" onclick="closeMCPStatus()">
+                <i class="fas fa-times"></i>
+            </button>
+        </div>
+        <div class="modal-body">
+            <div id="mcpStatusContent">
+                <div class="status-indicator loading">
+                    <i class="fas fa-spinner fa-spin"></i>
+                    Loading MCP status...
+                </div>
             </div>
         </div>
     </div>

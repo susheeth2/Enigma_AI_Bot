@@ -364,6 +364,8 @@ body {
     padding: 0.25rem;
     margin-right: 1rem;
     transition: var(--theme-transition);
+    flex-wrap: wrap;
+    gap: 0.25rem;
 }
 
 .mode-btn {
@@ -376,12 +378,18 @@ body {
     cursor: pointer;
     transition: all 0.2s ease;
     color: var(--text-secondary);
+    white-space: nowrap;
 }
 
 .mode-btn.active {
     background: var(--surface);
     color: var(--text-primary);
     box-shadow: var(--shadow);
+}
+
+.mode-btn:hover:not(.active) {
+    background: rgba(37, 99, 235, 0.1);
+    color: var(--primary-color);
 }
 
 .chat-messages {
@@ -591,6 +599,16 @@ body {
     color: white;
 }
 
+.doc-chat-btn {
+    background: #dc2626;
+    color: white;
+}
+
+.rag-btn {
+    background: #ea580c;
+    color: white;
+}
+
 .send-btn {
     background: var(--primary-color);
     color: white;
@@ -600,6 +618,20 @@ body {
     background: var(--border);
     cursor: not-allowed;
     transform: none;
+}
+
+/* Mode Status Indicator */
+.mode-status {
+    position: absolute;
+    top: -0.5rem;
+    right: -0.5rem;
+    background: var(--primary-color);
+    color: white;
+    font-size: 0.75rem;
+    padding: 0.25rem 0.5rem;
+    border-radius: var(--radius);
+    font-weight: 500;
+    z-index: 10;
 }
 
 /* Image Generation Panel */
@@ -984,7 +1016,13 @@ body {
     }
 
     .mode-selector {
-        display: none;
+        flex-wrap: wrap;
+        margin-right: 0.5rem;
+    }
+
+    .mode-btn {
+        padding: 0.375rem 0.75rem;
+        font-size: 0.75rem;
     }
 }
 
@@ -1017,4 +1055,50 @@ body {
 
 .overlay.show {
     display: block;
+}
+
+/* Status indicators */
+.status-indicator {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25rem;
+    font-size: 0.75rem;
+    padding: 0.25rem 0.5rem;
+    border-radius: var(--radius);
+    font-weight: 500;
+}
+
+.status-indicator.online {
+    background: rgba(16, 185, 129, 0.1);
+    color: var(--success-color);
+}
+
+.status-indicator.offline {
+    background: rgba(239, 68, 68, 0.1);
+    color: var(--error-color);
+}
+
+.status-indicator.loading {
+    background: rgba(245, 158, 11, 0.1);
+    color: var(--warning-color);
+}
+
+/* Document upload area */
+.document-upload-area {
+    border: 2px dashed var(--border);
+    border-radius: var(--radius);
+    padding: 2rem;
+    text-align: center;
+    margin: 1rem 0;
+    transition: all 0.2s ease;
+}
+
+.document-upload-area:hover {
+    border-color: var(--primary-color);
+    background: rgba(37, 99, 235, 0.05);
+}
+
+.document-upload-area.dragover {
+    border-color: var(--primary-color);
+    background: rgba(37, 99, 235, 0.1);
 }
